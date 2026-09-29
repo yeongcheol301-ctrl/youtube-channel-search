@@ -1,0 +1,11 @@
+# 비밀값 — 절대 올리지 않음
+.env
+.streamlit/secrets.toml
+
+# 로컬 실행 산출물
+.cache/
+output/
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
