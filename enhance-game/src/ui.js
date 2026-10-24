@@ -56,6 +56,41 @@ function clang(kind) {
   } catch { /* 소리를 못 내도 게임은 계속 */ }
 }
 
+// ---- 불꽃 파편 ----
+let parts = [];
+function sparks(kind, color) {
+  if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
+  const fx = document.getElementById('fx');
+  const art = document.querySelector('.anvil-art') ?? document.querySelector('.boss-art');
+  if (!fx || !art) return;
+  const r = art.getBoundingClientRect();
+  const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+  const n = kind === 'destroy' ? 46 : kind === 'big' ? 70 : 28;
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2, v = (kind === 'destroy' ? 3 : 2) + Math.random() * 5;
+    parts.push({ x: cx, y: cy, vx: Math.cos(a) * v, vy: Math.sin(a) * v - (kind === 'destroy' ? 1 : 3), life: 1, size: kind === 'destroy' ? 3 + Math.random() * 4 : 1.5 + Math.random() * 2.5, color: Math.random() < 0.3 ? '#fff3d0' : color, shard: kind === 'destroy' });
+  }
+  if (!sparks.running) { sparks.running = true; requestAnimationFrame(stepFx); }
+}
+function stepFx() {
+  const fx = document.getElementById('fx');
+  const dpr = window.devicePixelRatio || 1;
+  if (fx.width !== innerWidth * dpr) { fx.width = innerWidth * dpr; fx.height = innerHeight * dpr; }
+  const c = fx.getContext('2d');
+  c.setTransform(dpr, 0, 0, dpr, 0, 0);
+  c.clearRect(0, 0, innerWidth, innerHeight);
+  parts = parts.filter((p) => p.life > 0);
+  for (const p of parts) {
+    p.x += p.vx; p.y += p.vy; p.vy += 0.18; p.vx *= 0.98; p.life -= p.shard ? 0.018 : 0.028;
+    c.globalAlpha = Math.max(0, p.life);
+    c.fillStyle = p.color;
+    if (p.shard) { c.save(); c.translate(p.x, p.y); c.rotate(p.life * 8); c.fillRect(-p.size / 2, -p.size, p.size, p.size * 2); c.restore(); }
+    else { c.shadowColor = p.color; c.shadowBlur = 8; c.fillRect(p.x, p.y, p.size, p.size); c.shadowBlur = 0; }
+  }
+  c.globalAlpha = 1;
+  if (parts.length) requestAnimationFrame(stepFx); else sparks.running = false;
+}
+
 function toast(text) {
   ui.toast = text;
   renderToast();
@@ -69,7 +104,7 @@ function persist() {
 }
 
 // ---- 공통 조각 ----
-const sprite = (name, grade = 0, size = 48) => `<canvas class="spr" width="${size}" height="${size}" data-sprite="${name}" data-grade="${grade}" aria-hidden="true"></canvas>`;
+const sprite = (name, grade = 0, size = 48) => `<canvas class="spr" width="${size * 2}" height="${size * 2}" style="width:${size}px" data-sprite="${name}" data-grade="${grade}" aria-hidden="true"></canvas>`;
 const btn = (act, label, { cls = '', disabled = false, data = {} } = {}) => `<button type="button" class="btn ${cls}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${v}"`).join(' ')} ${disabled ? 'disabled' : ''}>${label}</button>`;
 
 function selectedWeapon() {
@@ -376,11 +411,13 @@ function doEnhance() {
   if (!r.ok) return toast(r.reason);
   clang(r.result === 'destroy' ? 'destroy' : r.result.startsWith('up') ? 'up' : 'fail');
   if (r.result === 'destroy') {
-    document.body.classList.remove('shake'); void document.body.offsetWidth; document.body.classList.add('shake');
+    document.body.classList.remove('shake', 'crack'); void document.body.offsetWidth; document.body.classList.add('shake', 'crack');
+    sparks('destroy', '#e4675a');
     toast(`파괴! +${w.level} ${levelName(w)}이(가) 산산조각 났습니다`);
     ui.selected = null;
   } else if (r.result.startsWith('up')) {
-    ui.flash = 'flash';
+    ui.flash = w.level >= 10 ? 'flash pillar' : 'flash';
+    sparks(w.level >= 20 ? 'big' : 'up', gradeColor(w.grade) === GRADE_COLORS[0][1] ? '#f1b45a' : gradeColor(w.grade));
     if (r.result === 'up2') toast(`2단계 점프! +${w.level}`);
     if (w.level >= 20) {
       ui.banner = `<div class="banner-inner" style="--grade:${gradeColor(w.grade)}"><small>${GRADES[w.grade]} ${WEAPONS[w.type].name}</small><strong>+${w.level}</strong><span>「${levelName(w)}」 탄생!</span></div>`;

@@ -3,26 +3,28 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Black+Han+Sans&family=Gothic+A1:wght@400;600;800&family=Nanum+Gothic+Coding:wght@700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Song+Myung&family=Nanum+Myeongjo:wght@700;800&family=Gothic+A1:wght@400;600;800&family=Nanum+Gothic+Coding:wght@700&display=swap">
 <style>
-/* 레이아웃: 한 손 세로 화면. 위 상태줄 · 가운데 모루(무기) · 큰 강화 버튼 · 아래 탭. 2000년대 PC방 모니터의 어두운 청록 화면. */
+/* 레이아웃: 한 손 세로 화면. 위 상태줄 · 가운데 모루(무기) · 핏빛 강화 버튼 · 아래 탭. 리니지·디아블로풍: 그을린 철판, 낡은 금테, 양피지색 글씨. */
 :root {
-  --bg: #0b1116;
-  --panel: #131c23;
-  --panel-2: #1a2630;
-  --line: #26343f;
-  --fg: #dbe6ec;
-  --muted: #8a9ba6;
-  --ember: #e0442c;
-  --ember-hi: #ff7a4d;
-  --mineral: #5fe3d0;
-  --gold: #f0c23a;
-  --ok: #5fd38a;
-  --no: #ff6b6b;
-  --font-display: "Black Han Sans", "Apple SD Gothic Neo", "Malgun Gothic", sans-serif;
+  --bg: #0c0a09;
+  --panel: #17130f;
+  --panel-2: #231c15;
+  --line: #3b3024;
+  --fg: #eadfc8;
+  --muted: #9d907b;
+  --ember: #9e1f17;
+  --ember-hi: #d8442c;
+  --mineral: #6fd6c4;
+  --gold: #c9a24a;
+  --gold-hi: #f1d488;
+  --ok: #7cc98a;
+  --no: #e4675a;
+  --font-display: "Song Myung", "Nanum Myeongjo", "AppleMyungjo", serif;
+  --font-head: "Nanum Myeongjo", "AppleMyungjo", "Batang", serif;
   --font-body: "Gothic A1", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif;
   --font-num: "Nanum Gothic Coding", ui-monospace, "SFMono-Regular", Menlo, monospace;
-  --r: 6px;
+  --r: 4px;
   color-scheme: dark;
 }
 [hidden] { display: none !important; }
@@ -32,12 +34,13 @@ body {
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 0 calc(88px + env(safe-area-inset-bottom, 0px));
-  background-image: repeating-linear-gradient(0deg, rgba(255,255,255,0.018) 0 1px, transparent 1px 3px);
+  background-image: radial-gradient(ellipse at 50% -10%, #2a1a12 0%, transparent 55%), radial-gradient(ellipse at 50% 120%, #1a0d0b 0%, transparent 60%);
+  background-attachment: fixed;
 }
 body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-area-inset-top, 0px); z-index: 10; background: var(--bg); }
 #view { display: flex; flex-direction: column; gap: 12px; padding-top: 12px; }
 .wrap { max-width: 480px; margin: 0 auto; display: flex; flex-direction: column; gap: 12px; }
-canvas.spr { image-rendering: pixelated; display: block; max-width: 100%; }
+canvas.spr { display: block; max-width: 100%; height: auto; }
 button { font: inherit; color: inherit; }
 button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--mineral); outline-offset: 2px; }
 small { color: var(--muted); font-weight: 400; }
@@ -177,6 +180,57 @@ table.ready { width: 100%; border-collapse: collapse; background: var(--panel); 
 @keyframes pop { from { transform: scale(0.6); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 body.shake { animation: shake 0.4s; }
 @keyframes shake { 20% { transform: translate(-6px, 2px); } 40% { transform: translate(6px, -2px); } 60% { transform: translate(-4px, 0); } 80% { transform: translate(4px, 1px); } }
+
+/* ---- 다크 판타지 표면 ---- */
+.anvil, .mine, .boss, .book-card, table.ready, .auto, .rebirth, .unlock, .cash li, .buy, .tile, .sheet {
+  background: linear-gradient(180deg, #1c1712 0%, #120f0c 100%);
+  border: 1px solid var(--line);
+  box-shadow: inset 0 0 0 1px rgba(201, 162, 74, 0.12), inset 0 1px 0 rgba(255, 240, 210, 0.05), 0 6px 16px rgba(0, 0, 0, 0.45);
+}
+.anvil, .mine, .boss { border-color: #5a4630; }
+.anvil::before, .anvil::after, .boss::before, .boss::after, .mine::before, .mine::after {
+  content: ""; position: absolute; width: 14px; height: 14px; border: 2px solid var(--gold); pointer-events: none; opacity: 0.8;
+}
+.anvil::before, .boss::before, .mine::before { top: 4px; left: 4px; border-right: 0; border-bottom: 0; }
+.anvil::after, .boss::after, .mine::after { bottom: 4px; right: 4px; border-left: 0; border-top: 0; }
+.anvil-art, .boss-art, .mine-art { background: radial-gradient(circle at 50% 55%, #2b2118 0%, #0a0807 72%); border-radius: 50%; aspect-ratio: 1; display: grid; place-items: center; }
+h2 { font-family: var(--font-head); font-weight: 800; letter-spacing: -0.01em; }
+h2 .lv { color: var(--gold-hi); text-shadow: 0 0 12px rgba(241, 212, 136, 0.45); font-family: var(--font-display); font-weight: 400; }
+h3.sec { font-family: var(--font-head); font-weight: 800; color: var(--gold); letter-spacing: 0.02em; border-bottom: 1px solid var(--line); padding-bottom: 4px; }
+.grade-tag { letter-spacing: 0.12em; }
+.mineral { color: var(--gold-hi); text-shadow: 0 0 10px rgba(241, 212, 136, 0.3); }
+.enhance-btn {
+  background: linear-gradient(180deg, #c33a24 0%, #8c1a12 55%, #5e0f0a 100%);
+  color: var(--fg); border: 1px solid var(--gold); box-shadow: inset 0 1px 0 rgba(255, 220, 180, 0.35), inset 0 -3px 0 rgba(0, 0, 0, 0.35), 0 4px 0 #3a0906, 0 0 24px -6px #d8442c;
+}
+.enhance-btn:active { box-shadow: inset 0 1px 0 rgba(255, 220, 180, 0.2), 0 1px 0 #3a0906; }
+.enhance-btn .eb-title { font-family: var(--font-display); font-weight: 400; font-size: 34px; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.5), 0 0 14px rgba(255, 160, 90, 0.5); letter-spacing: 0.3em; padding-left: 0.3em; }
+.enhance-btn .eb-meta { color: #f3dcc0; }
+.enhance-btn.mint { background: linear-gradient(180deg, #2f6b62 0%, #1b4740 60%, #102c28 100%); color: var(--fg); box-shadow: inset 0 1px 0 rgba(200, 255, 240, 0.25), 0 4px 0 #0a1c19; }
+.enhance-btn:disabled { background: linear-gradient(180deg, #2a231c, #1a1511); border-color: var(--line); color: var(--muted); box-shadow: none; }
+.btn { background: linear-gradient(180deg, #2a221a, #1a1511); border-color: #4a3b2a; }
+.btn.gold { background: linear-gradient(180deg, #4a3812, #2a1f0a); border-color: var(--gold); color: var(--gold-hi); }
+.tabs { background: linear-gradient(180deg, #15110d, #0b0908); border-top: 1px solid #5a4630; }
+.tabs button { font-family: var(--font-head); }
+.tabs button[aria-current="page"] { color: var(--gold-hi); background: linear-gradient(180deg, #2a2016, #18130e); box-shadow: inset 0 -2px 0 var(--gold); }
+.speed { border-color: #4a3b2a; }
+.pity span { background: linear-gradient(90deg, #5a3a0e, var(--gold-hi)); }
+.hint, .warn { background: #241b0c; border-color: #6a5220; color: var(--gold-hi); }
+.banner-inner strong { font-family: var(--font-display); }
+.banner-inner span { font-family: var(--font-head); font-weight: 800; }
+.sheet h3 { font-family: var(--font-head); font-weight: 800; color: var(--gold-hi); }
+
+/* ---- 연출 ---- */
+#fx { position: fixed; inset: 0; width: 100vw; height: 100vh; pointer-events: none; z-index: 24; }
+.anvil.pillar .anvil-art { animation: pillar 0.9s ease-out; }
+@keyframes pillar { 0% { box-shadow: 0 0 0 0 var(--grade), 0 -40px 80px 10px var(--grade); } 100% { box-shadow: 0 0 0 0 transparent; } }
+body.crack::after { content: ""; position: fixed; inset: 0; z-index: 23; pointer-events: none; background:
+  linear-gradient(115deg, transparent 49.6%, rgba(228, 103, 90, 0.55) 50%, transparent 50.4%),
+  linear-gradient(60deg, transparent 49.7%, rgba(228, 103, 90, 0.4) 50%, transparent 50.3%),
+  radial-gradient(circle at 50% 35%, rgba(158, 31, 23, 0.35), transparent 60%);
+  animation: crack 0.7s ease-out forwards; }
+@keyframes crack { from { opacity: 1; } to { opacity: 0; } }
+
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>
@@ -195,4 +249,5 @@ body.shake { animation: shake 0.4s; }
 <div id="modal" hidden></div>
 <div id="toast" role="status" hidden></div>
 <div id="banner" hidden></div>
+<canvas id="fx" aria-hidden="true"></canvas>
 <script type="module" src="src/ui.js"></script>
