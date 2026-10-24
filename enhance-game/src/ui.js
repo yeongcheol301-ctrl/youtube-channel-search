@@ -11,6 +11,7 @@ import {
 import {
   challengeBoss, measureDps, rebirthCoins, rebirth, nextBoss, nextUnlock, unlock, buyPerm, PERMS,
   permCost, autoStep, bulkSell, shouldHintRebirth, AUTO_REBIRTHS, BULK_SELL_REBIRTHS, bossReward,
+  nextStep, alerts,
 } from './progress.js';
 import { drawSprite, GRADE_COLORS } from './sprites.js';
 
@@ -134,11 +135,22 @@ function selectedWeapon() {
 
 // ---- 머리말 ----
 let lastHud = '';
+// 미네랄 숫자는 실제 값을 따라 부드럽게 올라간다.
+const shown = { minerals: s.minerals };
+function animateNumbers() {
+  const diff = s.minerals - shown.minerals;
+  shown.minerals = Math.abs(diff) < 1 ? s.minerals : shown.minerals + diff * 0.18;
+  const el = document.getElementById('min-num');
+  if (el) el.textContent = fmt(shown.minerals);
+  requestAnimationFrame(animateNumbers);
+}
+
 function renderHeader() {
   const hint = shouldHintRebirth(s, Date.now());
+  const step = nextStep(s);
   const html = `
     <div class="hud-main">
-      <span class="mineral">${fmt(s.minerals)}</span><span class="unit">미네랄</span>
+      <span class="mineral" id="min-num"></span><span class="unit">미네랄</span>
       <button type="button" class="speed s${ui.speed}" data-act="speed" aria-label="게임 속도 ${ui.speed}배, 눌러서 바꾸기">▶ ${ui.speed}배속</button>
     </div>
     <div class="hud-sub">
@@ -147,7 +159,8 @@ function renderHeader() {
       <span>보스 <b>${s.maxStage}</b>단계</span>
       <span>코인 <b>${fmt(s.meta.coins)}</b></span>
     </div>
-    ${hint ? `<button type="button" class="hint" data-act="tab" data-tab="boss">10분째 DPS가 그대로예요. 환생하면 코인 ${fmt(rebirthCoins(s))}개 →</button>` : ''}`;
+    ${hint ? `<button type="button" class="hint" data-act="tab" data-tab="boss">10분째 DPS가 그대로예요. 환생하면 코인 ${fmt(rebirthCoins(s))}개 →</button>`
+      : `<button type="button" class="guide g-${step.key}" data-act="tab" data-tab="${step.tab}"><span>다음</span>${step.text}</button>`}`;
   if (html !== lastHud) { lastHud = html; $('#hud').innerHTML = html; }
 }
 
@@ -211,9 +224,7 @@ function renderForge() {
       <label>목표 <select id="auto-target" data-act="auto-target">${[5, 10, 15, 20, 25, 30].map((n) => `<option value="${n}" ${n === ui.autoTarget ? 'selected' : ''}>+${n}</option>`).join('')}</select></label>
       ${s.meta.rebirths >= BULK_SELL_REBIRTHS ? `<label>일괄 판매 <select id="sell-max" data-act="sell-max">${[3, 5, 8, 10].map((n) => `<option value="${n}" ${n === ui.sellMax ? 'selected' : ''}>+${n} 이하</option>`).join('')}</select></label>${btn('bulk-sell', '팔기')}` : '<small>일괄 판매는 환생 5회차부터</small>'}
     </div>` : `<p class="note">자동 구매·강화는 환생 ${AUTO_REBIRTHS}회차부터 열립니다.</p>`;
-  const idle = s.weapons.length > 0 && miners(s).length === 0
-    ? '<p class="warn">채집 중인 무기가 없어 미네랄이 들어오지 않습니다. 무기 하나를 [채집으로 보내기] 하세요.</p>' : '';
-  return `${main}${idle}
+  return `${main}
     <h3 class="sec">무기 구매</h3><div class="shop">${shop}</div>
     <h3 class="sec">보유 무기 <small>${s.weapons.length}자루 · 전투 ${fighters(s).length} · 채집 ${miners(s).length}</small></h3>
     <div class="tiles">${s.weapons.map(weaponTile).join('') || '<p class="note">아직 무기가 없습니다.</p>'}</div>
@@ -331,8 +342,11 @@ function renderBook() {
 
 // ---- 상점 ----
 const CASH = [
-  ['배속권 3배 (24시간)', '3,300원'], ['광고 제거', '5,500원'], ['월정액 (꺼 둔 동안 24시간·2배)', '9,900원'],
-  ['파괴 방지권 3장', '1,100원'], ['황금 강화 연출 스킨', '4,400원'],
+  { name: '대장장이 월정액', price: '9,900원', tag: 'BEST', line: '30일 · 꺼 둔 동안 24시간·2배 채집', art: 'assets/building.webp' },
+  { name: '파괴 방지권 3장', price: '1,100원', tag: '첫 구매 2배', line: '+10강 이상 실패해도 무기가 깨지지 않음', art: 'assets/sword-4.webp' },
+  { name: '배속권 3배', price: '3,300원', tag: '', line: '24시간 동안 모든 진행 3배', art: 'assets/bow-5.webp' },
+  { name: '광고 제거', price: '5,500원', tag: '영구', line: '광고 없이 보상 2배 바로 받기', art: 'assets/staff-4.webp' },
+  { name: '심연의 연출 스킨', price: '4,400원', tag: '한정', line: '강화 성공 시 보라 불꽃과 전용 효과음', art: 'assets/sword-6.webp' },
 ];
 
 function renderShop() {
@@ -349,7 +363,10 @@ function renderShop() {
     <h3 class="sec">무료 보상</h3>
     ${btn('ad-minerals', `광고 보고 미네랄 받기 (+${fmt(Math.max(200, incomePerSec(s) * 300))})`, { cls: 'big mint' })}
     <h3 class="sec">유료 상품 <small>시제품이라 결제는 되지 않습니다</small></h3>
-    <ul class="cash">${CASH.map(([n, p]) => `<li><span>${n}</span>${btn('cash', p, { data: { name: n } })}</li>`).join('')}</ul>
+    <div class="packs">${CASH.map((c) => `<button type="button" class="pack" data-act="cash" data-name="${c.name}">
+      ${c.tag ? `<em class="pack-tag">${c.tag}</em>` : ''}
+      <img src="${c.art}" alt="" width="72" height="72">
+      <strong>${c.name}</strong><small>${c.line}</small><span class="pack-price">${c.price}</span></button>`).join('')}</div>
     ${btn('open-odds', '강화 확률표 보기')}`;
 }
 
@@ -413,40 +430,75 @@ function updateLive() {
 function render() {
   renderHeader();
   const html = VIEWS[ui.tab]();
-  if (html === lastView) { updateLive(); renderModal(); renderBanner(); return; }
+  if (html === lastView) {
+    updateLive(); renderModal(); renderBanner();
+    const al = alerts(s);
+    document.querySelectorAll('.tabs button').forEach((b) => b.classList.toggle('dot', !!al[b.dataset.tab] && b.dataset.tab !== ui.tab));
+    return;
+  }
   lastView = html;
-  $('#view').innerHTML = html;
+  const view = $('#view');
+  view.innerHTML = html;
+  if (render.tab !== ui.tab) { view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); render.tab = ui.tab; }
   updateLive();
-  document.querySelectorAll('.tabs button').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === ui.tab ? 'page' : 'false'));
+  const al = alerts(s);
+  document.querySelectorAll('.tabs button').forEach((b) => {
+    b.setAttribute('aria-current', b.dataset.tab === ui.tab ? 'page' : 'false');
+    b.classList.toggle('dot', !!al[b.dataset.tab] && b.dataset.tab !== ui.tab);
+  });
   drawSprites($('#view'));
   renderModal();
   renderBanner();
+}
+
+// ---- 떠오르는 숫자·진동 ----
+function floatText(text, cls, anchor) {
+  const el = document.createElement('div');
+  el.className = `float ${cls}`;
+  el.textContent = text;
+  const box = (anchor ?? document.querySelector('.anvil-art') ?? document.getElementById('min-num'))?.getBoundingClientRect();
+  if (!box) return;
+  el.style.left = `${box.left + box.width / 2}px`;
+  el.style.top = `${box.top + box.height / 3}px`;
+  document.body.appendChild(el);
+  setTimeout(() => el.remove(), 1000);
+}
+const gainText = (n) => floatText(`+${fmt(n)}`, 'gain', document.getElementById('min-num'));
+function buzz(ms) { try { navigator.vibrate?.(ms); } catch { /* 진동이 없는 기기 */ } }
+
+function showEvolution(w) {
+  const url = weaponArtUrl(w.type, w.level);
+  ui.banner = `<div class="banner-inner evolve" style="--grade:${gradeColor(w.grade)}">
+    <small>진화 · ${GRADES[w.grade]} ${WEAPONS[w.type].name}</small>
+    ${url ? `<img src="${url}" alt="" width="180" height="180">` : ''}
+    <strong>+${w.level}</strong><span>「${levelName(w)}」</span></div>`;
+  clearTimeout(showEvolution.t);
+  showEvolution.t = setTimeout(() => { ui.banner = null; renderBanner(); }, 2400);
 }
 
 // ---- 행동 ----
 function doEnhance() {
   const w = selectedWeapon();
   if (!w) return;
+  const before = w.level;
   const r = enhance(s, w.id, Math.random);
   if (!r.ok) return toast(r.reason);
   clang(r.result === 'destroy' ? 'destroy' : r.result.startsWith('up') ? 'up' : 'fail');
   if (r.result === 'destroy') {
     document.body.classList.remove('shake', 'crack'); void document.body.offsetWidth; document.body.classList.add('shake', 'crack');
     sparks('destroy', '#e4675a');
+    floatText('파괴', 'bad'); buzz([60, 40, 120]);
     toast(`파괴! +${w.level} ${levelName(w)}이(가) 산산조각 났습니다`);
     ui.selected = null;
   } else if (r.result.startsWith('up')) {
     ui.flash = w.level >= 10 ? 'flash pillar' : 'flash';
     sparks(w.level >= 20 ? 'big' : 'up', gradeColor(w.grade) === GRADE_COLORS[0][1] ? '#f1b45a' : gradeColor(w.grade));
-    if (r.result === 'up2') toast(`2단계 점프! +${w.level}`);
-    if (w.level >= 20) {
-      ui.banner = `<div class="banner-inner" style="--grade:${gradeColor(w.grade)}"><small>${GRADES[w.grade]} ${WEAPONS[w.type].name}</small><strong>+${w.level}</strong><span>「${levelName(w)}」 탄생!</span></div>`;
-      clearTimeout(doEnhance.b); doEnhance.b = setTimeout(() => { ui.banner = null; renderBanner(); }, 2200);
-    }
+    floatText(r.result === 'up2' ? '+2 점프!' : '성공', 'good'); buzz(25);
+    if (bandOf(w.level) > bandOf(before) || w.level === MAX_LEVEL) { showEvolution(w); buzz([30, 30, 60]); }
     if (w.pendingTraits) ui.modal = { kind: 'trait', id: w.id };
   } else {
     ui.flash = 'dim';
-    toast(r.result === 'down' ? `실패… +${w.level}로 내려갔습니다` : '실패… 단계는 그대로');
+    floatText(r.result === 'down' ? `-1 (+${w.level})` : '실패', 'miss');
   }
   render();
   setTimeout(() => { ui.flash = null; }, 300);
@@ -468,6 +520,7 @@ function startFight() {
       clearInterval(id);
       ui.fight = null;
       clang(r.killed ? 'up' : 'destroy');
+      if (r.killed) { gainText(bossReward(boss.stage)); sparks('big', '#f1d488'); buzz([40, 40, 80]); }
       toast(r.killed ? `${boss.stage}단계 보스 처치! +${fmt(bossReward(boss.stage))} 미네랄` : `실패… 30초 동안 ${fmt(r.damage)} 피해 (체력 ${fmt(boss.hp)})`);
       persist();
     }
@@ -488,7 +541,7 @@ const handlers = {
     if (!r?.ok) return toast('같은 등급 +10 이상 두 자루가 필요합니다');
     ui.selected = r.weapon.id; clang('up'); toast(`조합 성공! ${GRADES[r.weapon.grade]} ${WEAPONS[r.weapon.type].name}`);
   },
-  sell: () => { const w = selectedWeapon(); if (!w) return; const r = sell(s, w.id); ui.selected = null; toast(`+${fmt(r.value)} 미네랄에 팔았습니다`); },
+  sell: () => { const w = selectedWeapon(); if (!w) return; const r = sell(s, w.id); ui.selected = null; gainText(r.value); toast(`+${fmt(r.value)} 미네랄에 팔았습니다`); },
   speed: () => {
     ui.speed = ui.speed === 3 ? 1 : ui.speed + 1;
     if (ui.speed > 1) toast(`${ui.speed}배속 · 시제품이라 무료, 출시 후에는 배속권으로 판매`);
@@ -509,7 +562,7 @@ const handlers = {
   close: () => { ui.modal = null; },
   unlock: (d) => { const r = unlock(s, d.type); toast(r.ok ? `${WEAPONS[d.type].name} 해금! 강화장에서 살 수 있습니다` : r.reason); },
   perm: (d) => { const r = buyPerm(s, d.key); toast(r.ok ? `${PERMS[d.key].name} 강화` : r.reason); },
-  'ad-minerals': () => { const g = Math.max(200, incomePerSec(s) * 300); s.minerals += g; toast(`(광고 시청 완료) +${fmt(g)} 미네랄`); },
+  'ad-minerals': () => { const g = Math.max(200, incomePerSec(s) * 300); s.minerals += g; gainText(g); toast(`(광고 시청 완료) +${fmt(g)} 미네랄`); },
   cash: (d) => toast(`「${d.name}」은 출시 후 판매합니다`),
   'open-odds': () => { ui.modal = { kind: 'odds', type: 'sword' }; },
   'odds-type': (d) => { ui.modal = { kind: 'odds', type: d.type }; },
@@ -544,6 +597,9 @@ document.addEventListener('change', (e) => {
 });
 
 // ---- 시작 ----
+[...Object.values(ART).flatMap((x) => Object.values(x)), ...Object.values(BOSS_ART), 'assets/building.webp', 'assets/logo.webp']
+  .forEach((src) => { const im = new Image(); im.src = src; });
+requestAnimationFrame(animateNumbers);
 const gain = applyOffline(s, Date.now());
 if (gain > 1) ui.modal = { kind: 'offline', gain };
 const splash = document.getElementById('splash');

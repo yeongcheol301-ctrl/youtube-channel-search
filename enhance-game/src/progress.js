@@ -1,6 +1,6 @@
 // 보스 도전, DPS 측정, 환생·해금·영구 능력, 자동화.
 import { WEAPONS, WEAPON_ORDER, makeBoss, bossFight, FIGHT_SECONDS } from './rules.js';
-import { newGame, ctxOf, fighters, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
+import { newGame, ctxOf, fighters, miners, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -125,4 +125,36 @@ export const HINT_IDLE_MS = 10 * 60e3;
 
 export function shouldHintRebirth(s, nowMs) {
   return s.maxStage >= 1 && s.bestDpsAt > 0 && nowMs - s.bestDpsAt > HINT_IDLE_MS;
+}
+
+// ---- 안내 ----
+
+export function canKillBoss(s) {
+  const party = fighters(s);
+  return party.length > 0 && bossFight(party, nextBoss(s), ctxOf(s)).killed;
+}
+
+function canSpendCoins(s) {
+  const u = nextUnlock(s);
+  if (u && s.meta.coins >= WEAPONS[u].unlockCost) return true;
+  return Object.entries(PERMS).some(([k, p]) => permLevel(s, k) < p.max && s.meta.coins >= permCost(permLevel(s, k)));
+}
+
+// 지금 가장 먼저 할 일 하나. tab은 그 일을 하는 화면.
+export function nextStep(s) {
+  if (s.weapons.some((w) => w.pendingTraits)) return { key: 'trait', tab: 'forge', text: '특성을 고를 무기가 있습니다' };
+  if (canKillBoss(s)) return { key: 'boss', tab: 'boss', text: `${s.maxStage + 1}단계 보스를 잡을 수 있습니다` };
+  if (!s.weapons.length) return { key: 'buy', tab: 'forge', text: '검을 사서 시작하세요' };
+  if (!miners(s).length) return { key: 'mine', tab: 'forge', text: '무기 하나를 채집으로 보내 미네랄을 버세요' };
+  if (!fighters(s).length) return { key: 'battle', tab: 'forge', text: '가장 센 무기를 강화해 전투로 보내세요' };
+  if (canSpendCoins(s)) return { key: 'shop', tab: 'shop', text: '환생 코인으로 새 무기나 능력을 사세요' };
+  return { key: 'enhance', tab: 'forge', text: '전투 무기를 강화해 보스를 준비하세요' };
+}
+
+export function alerts(s) {
+  return {
+    forge: s.weapons.some((w) => w.pendingTraits),
+    boss: canKillBoss(s),
+    shop: canSpendCoins(s),
+  };
 }
