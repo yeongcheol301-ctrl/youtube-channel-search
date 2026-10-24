@@ -231,6 +231,15 @@ body.crack::after { content: ""; position: fixed; inset: 0; z-index: 23; pointer
   animation: crack 0.7s ease-out forwards; }
 @keyframes crack { from { opacity: 1; } to { opacity: 0; } }
 
+/* ---- AI 그림 ---- */
+img.art { display: block; max-width: 100%; height: auto; mix-blend-mode: screen; border-radius: 50%; }
+.tile img.art, .buy img.art { border-radius: 4px; }
+.aura-violet img.art, .aura-gold img.art { filter: drop-shadow(0 0 10px var(--glow)); }
+img.logo { width: 100%; height: auto; mix-blend-mode: screen; margin-top: 8px; }
+#splash { position: fixed; inset: 0; z-index: 40; background: radial-gradient(ellipse at 50% 40%, #2a160e 0%, #0b0807 70%); display: grid; place-items: center; padding: 24px max(16px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); cursor: pointer; }
+.splash-inner { max-width: 440px; width: 100%; display: grid; gap: 18px; text-align: center; }
+.splash-inner img { width: 100%; height: auto; mix-blend-mode: screen; animation: pop 0.8s ease-out; }
+.splash-inner p { margin: 0; font-family: var(--font-head); font-weight: 800; color: var(--gold); letter-spacing: 0.04em; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>
@@ -246,6 +255,7 @@ body.crack::after { content: ""; position: fixed; inset: 0; z-index: 23; pointer
   <button type="button" data-act="tab" data-tab="book">도감</button>
   <button type="button" data-act="tab" data-tab="shop">상점</button>
 </nav>
+<div id="splash" hidden><div class="splash-inner"><img src="assets/logo.webp" alt="심연의 대장간" width="900" height="503"><p>검을 사고, 두드리고, 부수고, 다시 태어나라.</p><button type="button" class="enhance-btn"><span class="eb-title">입장</span><span class="eb-meta">탭하면 소리가 켜집니다</span></button></div></div>
 <div id="modal" hidden></div>
 <div id="toast" role="status" hidden></div>
 <div id="banner" hidden></div>

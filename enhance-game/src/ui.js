@@ -105,6 +105,28 @@ function persist() {
 
 // ---- 공통 조각 ----
 const sprite = (name, grade = 0, size = 48) => `<canvas class="spr" width="${size * 2}" height="${size * 2}" style="width:${size}px" data-sprite="${name}" data-grade="${grade}" aria-hidden="true"></canvas>`;
+// AI 그림: 단계 구간(0~6)별 무기 그림과 보스 그림. 없는 구간은 가장 가까운 그림, 그것도 없으면 직접 그린 그림.
+const ART = {
+  sword: { 0: 'assets/sword-0.webp', 6: 'assets/sword-6.webp' },
+  axe: {}, staff: {}, bow: {},
+};
+const BOSS_ART = { armored: 'assets/boss-armored.webp', giant: 'assets/boss-armored.webp' };
+function weaponArtUrl(type, level) {
+  const set = ART[type] ?? {};
+  const bands = Object.keys(set).map(Number);
+  if (!bands.length) return null;
+  const b = bandOf(level);
+  const best = bands.reduce((a, x) => (Math.abs(x - b) < Math.abs(a - b) ? x : a), bands[0]);
+  return set[best];
+}
+const art = (type, grade, level, size) => {
+  const url = weaponArtUrl(type, level);
+  return url ? `<img class="art" src="${url}" width="${size}" height="${size}" alt="" style="--glow:${gradeColor(grade)}">` : sprite(type, grade, size);
+};
+const bossArt = (types, size) => {
+  const url = types.map((x) => BOSS_ART[x]).find(Boolean);
+  return url ? `<img class="art boss-img" src="${url}" width="${size}" height="${size}" alt="">` : sprite('boss', 0, size);
+};
 const btn = (act, label, { cls = '', disabled = false, data = {} } = {}) => `<button type="button" class="btn ${cls}" data-act="${act}" ${Object.entries(data).map(([k, v]) => `data-${k}="${v}"`).join(' ')} ${disabled ? 'disabled' : ''}>${label}</button>`;
 
 function selectedWeapon() {
@@ -136,7 +158,7 @@ function renderHeader() {
 function weaponTile(w) {
   const on = w.id === ui.selected;
   return `<button type="button" class="tile aura-${auraOf(w.level)} ${on ? 'on' : ''}" data-act="select" data-id="${w.id}" style="--grade:${gradeColor(w.grade)}" aria-label="${GRADES[w.grade]} ${WEAPONS[w.type].name} +${w.level}">
-    ${sprite(w.type, w.grade, 36)}
+    ${art(w.type, w.grade, w.level, 40)}
     <span class="tile-lv">+${w.level}</span>
     <span class="tile-loc ${w.loc}">${w.loc === 'mine' ? '채집' : '전투'}</span>
     ${w.pendingTraits ? '<span class="tile-dot" title="특성 선택 대기"></span>' : ''}
@@ -155,7 +177,7 @@ function renderForge() {
     const failText = w.level < 5 ? '실패해도 유지' : breakP > 0 ? `실패 시 ${pct(breakP)} 파괴` : '실패 시 한 단계 하락';
     main = `
     <section class="anvil aura-${auraOf(w.level)} ${ui.flash ?? ''}" style="--grade:${gradeColor(w.grade)}">
-      <div class="anvil-art">${sprite(w.type, w.grade, 132)}</div>
+      <div class="anvil-art">${art(w.type, w.grade, w.level, 132)}</div>
       <div class="anvil-info">
         <p class="grade-tag">${GRADES[w.grade]} · ${WEAPONS[w.type].name}</p>
         <h2><span class="lv">+${w.level}</span> ${levelName(w)}</h2>
@@ -184,7 +206,7 @@ function renderForge() {
     const open = s.meta.unlocked.includes(t);
     const price = buyPrice(s, t);
     return `<button type="button" class="buy" data-act="buy" data-type="${t}" ${!open || s.minerals < price ? 'disabled' : ''}>
-      ${sprite(t, 0, 28)}<span>${WEAPONS[t].name}</span><small>${open ? fmt(price) : '잠김'}</small></button>`;
+      ${art(t, 0, 0, 32)}<span>${WEAPONS[t].name}</span><small>${open ? fmt(price) : '잠김'}</small></button>`;
   }).join('');
   const autoBox = s.meta.rebirths >= AUTO_REBIRTHS ? `
     <div class="auto">
@@ -253,7 +275,7 @@ function renderBoss() {
   const fight = ui.fight;
   return `
     <section class="boss">
-      <div class="boss-art ${fight ? 'hit' : ''}">${sprite('boss', 0, 120)}</div>
+      <div class="boss-art ${fight ? 'hit' : ''}">${bossArt(boss.types, 120)}</div>
       <div>
         <p class="grade-tag">${boss.stage}단계 보스</p>
         <h2>${boss.types.map((t) => BOSS_TYPES[t].name).join(' + ')}</h2>
@@ -283,6 +305,7 @@ function renderBoss() {
 
 // ---- 도감 ----
 function renderBook() {
+  const logo = '<img class="logo" src="assets/logo.webp" alt="심연의 대장간" width="900" height="503">';
   const found = new Set(s.meta.discovered);
   const cards = WEAPON_ORDER.map((t) => {
     const open = s.meta.unlocked.includes(t);
@@ -298,7 +321,7 @@ function renderBook() {
       <ol class="names">${names}</ol>
     </article>`;
   }).join('');
-  return `<h3 class="sec">무기 도감 <small>처음 띄운 단계 이름이 기록됩니다</small></h3>
+  return `${logo}<h3 class="sec">무기 도감 <small>처음 띄운 단계 이름이 기록됩니다</small></h3>
     <div class="book">${cards}</div>
     <h3 class="sec">조합표</h3>
     <table class="ready"><tbody>
@@ -526,6 +549,9 @@ document.addEventListener('change', (e) => {
 // ---- 시작 ----
 const gain = applyOffline(s, Date.now());
 if (gain > 1) ui.modal = { kind: 'offline', gain };
+const splash = document.getElementById('splash');
+splash.hidden = false;
+splash.addEventListener('click', () => { splash.hidden = true; clang('up'); });
 render();
 
 let seconds = 0;

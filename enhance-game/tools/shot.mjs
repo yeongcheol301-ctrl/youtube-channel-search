@@ -10,10 +10,12 @@ page.on('pageerror', (e) => errors.push(e.message));
 page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 await page.goto(url);
 await page.waitForSelector('.buy');
+await page.screenshot({ path: out + 'splash.png' });
+await page.click('#splash');
 await page.click('[data-act="buy"][data-type="sword"]');
 await page.evaluate(() => {});
 for (let i = 0; i < 3; i++) { await page.waitForTimeout(1100); }
-for (let i = 0; i < 20; i++) { await page.waitForTimeout(1000); const b = await page.$('.enhance-btn:not([disabled])'); if (b) await b.click(); }
+for (let i = 0; i < 20; i++) { await page.waitForTimeout(1000); const b = await page.$('#view .enhance-btn:not([disabled])'); if (b) await b.click(); }
 await page.click('[data-act="toggle-loc"]');
 await page.screenshot({ path: out + 'forge.png', fullPage: true });
 for (const tab of ['mine', 'boss', 'book', 'shop']) {
