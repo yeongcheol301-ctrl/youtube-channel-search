@@ -106,11 +106,8 @@ function persist() {
 // ---- 공통 조각 ----
 const sprite = (name, grade = 0, size = 48) => `<canvas class="spr" width="${size * 2}" height="${size * 2}" style="width:${size}px" data-sprite="${name}" data-grade="${grade}" aria-hidden="true"></canvas>`;
 // AI 그림: 단계 구간(0~6)별 무기 그림과 보스 그림. 없는 구간은 가장 가까운 그림, 그것도 없으면 직접 그린 그림.
-const ART = {
-  sword: { 0: 'assets/sword-0.webp', 6: 'assets/sword-6.webp' },
-  axe: {}, staff: {}, bow: {},
-};
-const BOSS_ART = { armored: 'assets/boss-armored.webp', giant: 'assets/boss-armored.webp' };
+const ART = Object.fromEntries(['sword', 'axe', 'staff', 'bow'].map((t) => [t, Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((b) => [b, `assets/${t}-${b}.webp`]))]));
+const BOSS_ART = Object.fromEntries(['armored', 'giant', 'barrier', 'multihit', 'regen'].map((b) => [b, `assets/boss-${b}.webp`]));
 function weaponArtUrl(type, level) {
   const set = ART[type] ?? {};
   const bands = Object.keys(set).map(Number);
@@ -231,7 +228,7 @@ function renderMine() {
   const next = buildingStats(b.tier + 1);
   return `
     <section class="mine">
-      <div class="mine-art">${sprite('building', 0, 120)}</div>
+      <div class="mine-art"><img class="art" src="assets/building.webp" width="120" height="120" alt=""></div>
       <div>
         <p class="grade-tag">미네랄 광맥 ${b.tier + 1}단계</p>
         <div class="hp"><span id="mine-hp"></span></div>
