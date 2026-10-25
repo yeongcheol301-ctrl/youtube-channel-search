@@ -41,6 +41,15 @@ let G = null;
 const view = { cw: 0, ch: 0, ts: 24, dpr: 1 };
 const keys = new Set();
 const joy = { x: 0, y: 0, id: null };
+const SETTINGS_KEY = 'hwata-settings';
+const settings = (() => { try { return { vibe: true, rotateSkip: false, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) ?? '{}') }; } catch { return { vibe: true, rotateSkip: false }; } })();
+const saveSettings = () => { try { localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings)); } catch { /* 무시 */ } };
+
+// 손에 전해지는 짧은 떨림(되는 기기에서만)
+function vib(ms) {
+  if (!settings.vibe) return;
+  try { navigator.vibrate?.(ms); } catch { /* 무시 */ }
+}
 
 // ---------- 저장 ----------
 
@@ -115,30 +124,50 @@ function bubble(x, y, n = 1) {
 
 // ---------- 창(대화·안내) ----------
 
+let typer = null;
+
 function openPanel({ title, body, choices = [], portrait, icon }) {
   G.paused = true;
   releaseInput();
-  $('panel').hidden = false;
-  $('panelTitle').textContent = title;
-  $('panelBody').textContent = body;
-  const por = $('panelPortrait');
+  $('dialog').hidden = false;
+  $('dlgName').textContent = title;
+  const por = $('dlgPortrait');
   const key = portrait ?? icon;
   por.hidden = !key;
   if (key) paintPortrait(por, key);
-  const box = $('panelChoices');
+  const box = $('dlgChoices');
   box.innerHTML = '';
   for (const c of choices) {
     const b = document.createElement('button');
-    b.className = 'choice' + (c.kind ? ' ' + c.kind : '');
+    b.className = 'btn' + (c.kind === 'primary' ? ' gold' : '');
     b.textContent = c.label;
     b.disabled = !!c.disabled;
-    b.addEventListener('click', () => { sfx.click(); c.onClick(); });
+    b.addEventListener('click', () => { sfx.click(); vib(8); c.onClick(); });
     box.append(b);
   }
+  typeText(body);
+}
+
+// 글자가 한두 자씩 나온다. 나머지 글자는 투명하게 미리 깔아 두어 버튼이 움직이지 않게 한다. 누르면 바로 다 보인다.
+const esc = (t) => t.replace(/[&<>]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;' }[c]));
+
+function typeText(text) {
+  clearInterval(typer);
+  const el = $('dlgText');
+  let i = 0;
+  const show = () => { el.innerHTML = `${esc(text.slice(0, i))}<span class="ghost">${esc(text.slice(i))}</span>`; };
+  show();
+  typer = setInterval(() => {
+    i = Math.min(text.length, i + 2);
+    show();
+    if (i >= text.length) clearInterval(typer);
+  }, 16);
+  el.onclick = () => { clearInterval(typer); i = text.length; show(); };
 }
 
 function closePanel() {
-  $('panel').hidden = true;
+  clearInterval(typer);
+  $('dialog').hidden = true;
   G.paused = false;
 }
 
@@ -257,12 +286,10 @@ function morningCard() {
   if (s.day === 1) {
     lines.push('바닷가 마을에 작은 한의원을 연 화타. 낮에는 배를 타고 나가 바닷속에서 약재를 따고, 밤에는 그 약재로 약을 지어 환자를 봅니다.');
     lines.push('');
-    lines.push('왼쪽 아래 둥근 판을 끌면 그쪽으로 헤엄칩니다.');
-    lines.push('숨 게이지가 떨어지기 전에 수면으로 올라오세요. 숨이 다하면 기절해 많이 잃습니다.');
-    lines.push('[손] 미역·다시마·굴·해삼을 누르고 있다가 원이 초록일 때 떼면 상급.');
-    lines.push('[작살] 쏠 곳을 누른 채 겨누고 떼면 쏩니다. [그물] 작은 물고기를 산 채로 잡습니다.');
-    lines.push('[삽] 모래를 누르고 있으면 팝니다. 가라앉은 상자와 진주조개가 묻혀 있습니다.');
-    lines.push('상어·곰치·해파리는 숨을 빼앗습니다. 다 했으면 배로 돌아와 [배에 오르기].');
+    lines.push('왼쪽 엄지: 화면 왼쪽 아래를 대고 끌면 그쪽으로 헤엄칩니다.');
+    lines.push('오른쪽 엄지: 노란 버튼이 가까운 약재·물고기·모래를 알아서 겨눕니다. 따기는 누르고 있다가 원이 초록일 때 떼면 상급!');
+    lines.push('노란 버튼 옆 동그라미로 도구를 바꿉니다: 손 · 작살 · 그물 · 삽');
+    lines.push('왼쪽 위 숨 원이 비기 전에 수면으로 올라오세요. 다 했으면 배 옆에서 [배에 오르기].');
     if (view.ch > view.cw) lines.push('휴대폰을 가로로 돌리면 더 넓게 보입니다.');
   } else {
     const tips = {
@@ -305,7 +332,11 @@ function trackerLines() {
 }
 
 function renderTracker() {
-  $('trackerList').innerHTML = trackerLines().map((l) => `<li><img src="${iconURL(l.icon)}" alt="">${l.text}</li>`).join('');
+  const lines = trackerLines();
+  G.goalIdx = (G.goalIdx ?? 0) % lines.length;
+  const l = lines[G.goalIdx];
+  $('goalIcon').src = iconURL(l.icon);
+  $('goalText').textContent = l.text + (lines.length > 1 ? ` (${G.goalIdx + 1}/${lines.length})` : '');
 }
 
 // ---------- 하루 끝 ----------
@@ -353,7 +384,9 @@ function releaseInput() {
   joy.x = joy.y = 0;
   joy.id = null;
   $('joyKnob').style.transform = '';
-  if (G) { G.hold = null; G.aim = null; G.gauge = null; G.mine = null; }
+  $('joy').classList.remove('on');
+  $('actBtn').classList.remove('pressed');
+  if (G) { G.hold = null; G.aim = null; G.gauge = null; G.mine = null; G.actHold = false; }
 }
 
 function screenToWorld(cx, cy) {
@@ -454,18 +487,38 @@ function finishGauge() {
 }
 
 function gain(id, hq, wx, wy) {
-  if (!canCarry(G.s, id)) { toast('망사리가 가득 찼습니다', 'bad'); return false; }
+  if (!canCarry(G.s, id)) { toast('망사리가 가득 찼습니다', 'bad'); vib(30); return false; }
   const before = G.s.inv[id]?.hq ?? 0;
   const first = addItem(G.s, id, hq);
   const isHq = G.s.inv[id].hq > before && MATERIALS[id].weight > 0;
   G.dayLog[id] = (G.dayLog[id] ?? 0) + 1;
   const c = playerCenter();
-  floatText(`${MATERIALS[id].name}${isHq ? ' ★' : ''}`, c.x, c.y - 1.1, isHq ? '#ffd76a' : '#fff6d8');
   flyIcon(id, wx ?? c.x, wy ?? c.y);
-  if (isHq) { sfx.pickHq(); burst(wx ?? c.x, wy ?? c.y, '#ffd76a', 10, { glow: true, speed: 2 }); } else sfx.pick();
-  if (first) toast(`새 재료 발견! 도감에 올랐습니다: ${MATERIALS[id].name}`, 'good');
+  pushFeed(id, isHq, first);
+  if (isHq) { sfx.pickHq(); vib(25); burst(wx ?? c.x, wy ?? c.y, '#ffd76a', 10, { glow: true, speed: 2 }); } else { sfx.pick(); vib(12); }
   renderTracker();
   return true;
+}
+
+function pushFeed(id, hq, first) {
+  const feed = $('feed');
+  const last = feed.lastElementChild;
+  if (last && last.dataset.id === id && last.dataset.hq === String(hq) && !last.classList.contains('out')) {
+    const n = Number(last.dataset.n) + 1;
+    last.dataset.n = n;
+    last.querySelector('b').textContent = `${MATERIALS[id].name}${hq ? ' ★' : ''} ×${n}`;
+    clearTimeout(last.timer);
+  } else {
+    const el = document.createElement('div');
+    el.dataset.id = id;
+    el.dataset.hq = String(hq);
+    el.dataset.n = 1;
+    el.innerHTML = `<img src="${iconURL(id)}" alt=""><b class="${hq ? 'hq' : ''}">${MATERIALS[id].name}${hq ? ' ★' : ''}</b>${first ? '<span class="hq">새 발견!</span>' : ''}`;
+    feed.append(el);
+    while (feed.children.length > 4) feed.firstChild.remove();
+  }
+  const el = feed.lastElementChild;
+  el.timer = setTimeout(() => { el.classList.add('out'); setTimeout(() => el.remove(), 450); }, 2600);
 }
 
 function removeProp(p) {
@@ -646,6 +699,95 @@ function updatePlayer(dt) {
   if (!low) G.lowWarned = false;
 }
 
+function clearLine(x0, y0, x1, y1) {
+  const n = Math.ceil(Math.hypot(x1 - x0, y1 - y0) / 0.3);
+  for (let i = 1; i < n; i++) {
+    const t = i / n;
+    if (isSolid(G.world, Math.floor(lerp(x0, x1, t)), Math.floor(lerp(y0, y1, t)))) return false;
+  }
+  return true;
+}
+
+// 지금 도구로 다룰 가장 알맞은 대상(행동 버튼이 겨누는 것)
+function findTarget() {
+  const pc = playerCenter();
+  const p = G.player;
+  if (G.mode === 'hand') {
+    if (nearBoat()) return { kind: 'boat', x: BOAT_X + 3, y: SEA - 1 };
+    let best = null, bd = 1e9;
+    for (const q of G.props) {
+      if (q.type === 'bottle') continue;
+      const cy = q.type === 'npc' ? q.y - 0.4 : q.type === 'kelp' ? q.y - 1 : q.y + 0.5;
+      const d = Math.hypot(q.x + 0.5 - pc.x, cy - pc.y);
+      const lim = q.type === 'npc' ? REACH + 1.5 : REACH + (q.type === 'kelp' ? 1 : 0);
+      if (d <= lim && d < bd) { bd = d; best = { kind: q.type === 'npc' ? 'npc' : 'prop', prop: q, x: q.x + 0.5, y: cy }; }
+    }
+    return best;
+  }
+  if (G.mode === 'harpoon' || G.mode === 'net') {
+    const range = G.mode === 'net' ? 5.4 : 10;
+    let best = null, bs = 1e9;
+    for (const e of G.ents) {
+      if (e.dead || e.type === 'drop' || e.type === 'jelly') continue;
+      const f = FISH[e.type];
+      if (G.mode === 'net' ? !f.small : f.netOnly) continue;
+      const ex = e.x + e.w / 2, ey = e.y + e.h / 2;
+      const d = Math.hypot(ex - pc.x, ey - pc.y);
+      if (d > range || !clearLine(pc.x, pc.y, ex, ey)) continue;
+      const score = d + ((ex - pc.x) * p.face < 0 ? 2.5 : 0) - (e.type === 'shark' ? 2 : 0);
+      if (score < bs) { bs = score; best = { kind: 'fish', ent: e, x: ex, y: ey }; }
+    }
+    return best;
+  }
+  // 삽: 가까운 상자, 없으면 엄지가 가리키는 쪽(없으면 아래)의 모래
+  const dir = inputDir();
+  const pref = dir.x || dir.y ? dir : { x: 0, y: 1 };
+  let best = null, bs = 1e9;
+  for (let y = Math.floor(pc.y) - 3; y <= Math.floor(pc.y) + 3; y++) {
+    for (let x = Math.floor(pc.x) - 3; x <= Math.floor(pc.x) + 3; x++) {
+      if (!canDig(G.world, x, y) || !inReach(x, y)) continue;
+      const open = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => isWater(G.world, x + dx, y + dy));
+      if (!open) continue;
+      const vx = x + 0.5 - pc.x, vy = y + 0.5 - pc.y, d = Math.hypot(vx, vy) || 1;
+      const score = d - 1.6 * ((vx * pref.x + vy * pref.y) / d) - (tile(G.world, x, y) === T.CHEST ? 3 : 0);
+      if (score < bs) { bs = score; best = { kind: 'tile', x, y }; }
+    }
+  }
+  return best;
+}
+
+const ACT_LABEL = { hand: '따기', harpoon: '쏘기', net: '던지기', shovel: '파기' };
+
+function actPress() {
+  unlockAudio();
+  if (!G || G.paused || G.s.phase !== 'day' || G.ended) return;
+  $('actBtn').classList.add('pressed');
+  vib(10);
+  const t = G.target;
+  if (G.mode === 'hand') {
+    if (!t) { toast('가까이에 딸 것이 없습니다'); return; }
+    if (t.kind === 'boat') return askHome();
+    if (t.kind === 'npc') return openQuest(t.prop.quest);
+    return tapProp(t.prop);
+  }
+  if (G.mode === 'harpoon' || G.mode === 'net') {
+    const pc = playerCenter();
+    G.aim = t ? { x: t.x, y: t.y } : { x: pc.x + G.player.face * 6, y: pc.y };
+    fire(G.mode);
+    G.aim = null;
+    return;
+  }
+  G.actHold = true;
+}
+
+function actRelease() {
+  $('actBtn').classList.remove('pressed');
+  if (!G) return;
+  G.actHold = false;
+  G.mine = null;
+  if (G.gauge) finishGauge();
+}
+
 function cursorTile() {
   const src = G.hold ?? G.hover;
   if (!src) return null;
@@ -656,9 +798,9 @@ function cursorTile() {
 function updateHold(dt) {
   const h = G.hold;
   if (h && G.aim) { const wp = screenToWorld(h.sx, h.sy); G.aim.x = wp.x; G.aim.y = wp.y; }
-  if (!h || G.mode !== 'shovel') return;
-  const c = cursorTile();
-  if (!canDig(G.world, c.x, c.y) || !inReach(c.x, c.y)) { G.mine = null; return; }
+  if (G.mode !== 'shovel' || (!h && !G.actHold)) return;
+  const c = G.actHold ? (G.target?.kind === 'tile' ? G.target : null) : cursorTile();
+  if (!c || !canDig(G.world, c.x, c.y) || !inReach(c.x, c.y)) { G.mine = null; return; }
   if (!G.mine || G.mine.x !== c.x || G.mine.y !== c.y) G.mine = { x: c.x, y: c.y, t: 0, need: digHardness(G.s, tile(G.world, c.x, c.y)), tick: 0 };
   const m = G.mine;
   m.t += dt;
@@ -846,6 +988,7 @@ function updateDay(dt) {
   if (G.paused || G.ended) return;
   G.time += dt;
   updatePlayer(dt);
+  if (!G.mine && !G.gauge) G.target = findTarget();
   updateHold(dt);
   if (G.gauge) G.gauge.t = Math.min(G.gauge.t + dt, G.gauge.dur * 1.25);
   updateShots(dt);
@@ -1309,9 +1452,28 @@ function drawParts(ts) {
   }
 }
 
+function drawTarget(ts) {
+  const t = G.target;
+  if (!t || G.aim || t.kind === 'boat') return;
+  const cx = (t.x - G.cam.x) * ts, cy = (t.y - G.cam.y) * ts;
+  const r = (t.kind === 'fish' ? Math.max(t.ent.w, t.ent.h) * 0.6 + 0.3 : 0.75) * ts + Math.sin(G.clock * 6) * 2;
+  const k = r * 0.45;
+  ctx.strokeStyle = G.mode === 'harpoon' && t.kind === 'fish' ? '#ff9c8a' : '#ffd76a';
+  ctx.lineWidth = 3;
+  const x0 = t.kind === 'tile' ? (t.x - G.cam.x) * ts + ts / 2 : cx, y0 = t.kind === 'tile' ? (t.y - G.cam.y) * ts + ts / 2 : cy;
+  for (const [sx, sy] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+    ctx.beginPath();
+    ctx.moveTo(x0 + sx * r, y0 + sy * (r - k));
+    ctx.lineTo(x0 + sx * r, y0 + sy * r);
+    ctx.lineTo(x0 + sx * (r - k), y0 + sy * r);
+    ctx.stroke();
+  }
+}
+
 function drawOverlays(ts) {
   const px = ts / 8;
   const pc = playerCenter();
+  drawTarget(ts);
   const c = G.mode === 'shovel' ? cursorTile() : null;
   if (c) {
     ctx.strokeStyle = 'rgba(255,246,216,0.25)';
@@ -1389,13 +1551,13 @@ function updateHud() {
   const s = G.s;
   const c = playerCenter();
   $('hudDay').textContent = `${s.day}일째`;
-  $('hudZone').textContent = `${ZONE_NAMES[G.zone] ?? ''} · 수심 ${Math.max(0, Math.round(c.y - SEA))}m`;
+  $('hudZone').textContent = `${ZONE_NAMES[G.zone] ?? ''} · ${Math.max(0, Math.round(c.y - SEA))}m`;
   const left = Math.max(0, DAY_SECONDS - G.time);
   $('sunFill').style.width = `${(left / DAY_SECONDS) * 100}%`;
   $('sunFill').classList.toggle('late', left < 30);
-  const br = s.stamina / maxStamina(s);
-  $('staminaFill').style.width = `${br * 100}%`;
-  $('staminaFill').classList.toggle('late', br < 0.25);
+  const br = clamp(s.stamina / maxStamina(s), 0, 1);
+  $('breathRing').style.strokeDashoffset = String(169.6 * (1 - br));
+  $('breath').classList.toggle('low', br < 0.25);
   $('hudStamina').textContent = Math.ceil(s.stamina);
   const wt = basketWeight(s);
   $('hudWeight').textContent = `${wt}/${carryLimit(s)}`;
@@ -1403,39 +1565,16 @@ function updateHud() {
   $('slotCount-net').textContent = s.arrows;
   $('hudMoney').textContent = s.money;
   $('homeBtn').hidden = !nearBoat();
-  drawMinimap();
-}
-
-function drawMinimap() {
-  const m = $('minimap');
-  const g = m.getContext('2d');
-  const w = m.width, h = m.height;
-  if (!G.miniBase) {
-    // 바다 단면을 한 번만 그려 둔다
-    const base = document.createElement('canvas');
-    base.width = w; base.height = h;
-    const b = base.getContext('2d');
-    b.fillStyle = '#1f5a7a';
-    b.fillRect(0, (SEA / H) * h, w, h);
-    b.fillStyle = '#c9b07a';
-    for (let x = 0; x < W; x++) {
-      const f = floorY(G.world, x);
-      b.fillRect((x / W) * w, (f / H) * h, Math.ceil(w / W) + 0.5, h);
-    }
-    G.miniBase = base;
-  }
-  g.clearRect(0, 0, w, h);
-  g.drawImage(G.miniBase, 0, 0);
-  for (const p of G.props) {
-    if (p.type !== 'npc') continue;
-    g.fillStyle = '#ffd76a';
-    g.fillRect((p.x / W) * w - 1.5, (p.y / H) * h - 1.5, 3, 3);
-  }
-  g.fillStyle = '#8a5d36';
-  g.fillRect((BOAT_X / W) * w, (SEA / H) * h - 2, 4, 2);
-  const c = playerCenter();
-  g.fillStyle = '#fff';
-  g.fillRect((c.x / W) * w - 2, (c.y / H) * h - 2, 4, 4);
+  $('depthMark').style.top = `${clamp((c.y - SEA) / (H - SEA), 0, 1) * 100}%`;
+  const t = G.target;
+  let label = ACT_LABEL[G.mode];
+  if (G.mode === 'hand' && t?.kind === 'npc') label = '말 걸기';
+  if (G.mode === 'hand' && t?.kind === 'boat') label = '배 타기';
+  const act = $('actBtn');
+  if ($('actLabel').textContent !== label) $('actLabel').textContent = label;
+  const icon = G.mode === 'hand' && t?.prop ? (t.kind === 'npc' ? 'hand' : t.prop.type) : TOOL_SPRITE[G.mode];
+  if (act.dataset.icon !== icon) { act.dataset.icon = icon; $('actIcon').src = iconURL(icon); }
+  act.classList.toggle('idle', !t && G.mode !== 'harpoon');
 }
 
 // ---------- 밤: 한의원 ----------
@@ -1446,7 +1585,7 @@ function openNight() {
   save();
   $('dayui').hidden = true;
   $('night').hidden = false;
-  $('night').scrollTop = 0;
+  G.nightTab = 'meds';
   renderPrep();
 }
 
@@ -1471,69 +1610,81 @@ function invList(s) {
 function market(s) {
   const rows = Object.keys(MATERIALS).filter((id) => MATERIALS[id].sell && count(s, id) > 0);
   if (!rows.length) return '<p class="muted">팔 만한 귀한 것이 없습니다. 우럭·진주·해마·상어 이빨을 팔 수 있습니다.</p>';
-  return `<ul class="shop">${rows.map((id) => `<li>${ico(id, 'lg')}<div><b>${MATERIALS[id].name} ${count(s, id)}개</b><small>하나에 ${MATERIALS[id].sell}냥 (상급은 1.5배)</small></div><button data-act="sell" data-id="${id}">하나 팔기</button></li>`).join('')}</ul>`;
+  return `<ul class="list">${rows.map((id) => `<li>${ico(id, 'lg')}<div><b>${MATERIALS[id].name} ${count(s, id)}개</b><small>하나에 ${MATERIALS[id].sell}냥 · 상급은 1.5배</small></div><button class="btn small gold" data-act="sell" data-id="${id}">팔기</button></li>`).join('')}</ul>`;
 }
 
 function notebook(s) {
   const dexIds = Object.keys(MATERIALS);
   const found = dexIds.filter((id) => s.dex?.[id]).length;
   const pages = [1, 2, 3].map((n) => (hasPage(s, n)
-    ? `<li class="got">${ico('page')}<div><b>${PAGES[n].name}</b><span>${PAGES[n].perk}</span></div></li>`
-    : `<li>${ico('page', 'dim')}<div><b>청낭서 ${n}장</b><span>바닷속 어딘가의 상자</span></div></li>`)).join('');
+    ? `<li class="got">${ico('page', 'lg')}<div><b>${PAGES[n].name}</b><span>${PAGES[n].perk}</span></div></li>`
+    : `<li>${ico('page', 'lg dim')}<div><b>청낭서 ${n}장</b><span>바닷속 어딘가의 상자</span></div></li>`)).join('');
   const dex = dexIds.map((id) => `<li class="${s.dex?.[id] ? 'got' : ''}">${ico(id, s.dex?.[id] ? '' : 'dim')}<span>${s.dex?.[id] ? MATERIALS[id].name : '?'}</span></li>`).join('');
-  return `<div><h4>수첩 · 청낭서</h4><ul class="pages">${pages}</ul></div><div><h4>재료 도감 ${found}/${dexIds.length}</h4><ul class="dex">${dex}</ul></div>`;
+  return `<div class="two"><div><h4>청낭서 ${(s.pages ?? []).length}/3</h4><ul class="list pages">${pages}</ul></div><div><h4>재료 도감 ${found}/${dexIds.length}</h4><ul class="dex">${dex}</ul></div></div>`;
 }
 
 const UPGRADE_ICON = { gourd: 'tewak', fins: 'swim', harpoon: 'harpoon', lantern: 'pearl', basket: 'netIcon' };
 
-function renderPrep() {
-  const s = G.s;
-  const meds = RECIPE_ORDER.map((id) => {
+const TABS = [['meds', '약장', 'seaweed'], ['forge', '대장간', 'harpoon'], ['market', '장터', 'coin'], ['book', '수첩', 'page']];
+
+function medCards(s) {
+  return RECIPE_ORDER.map((id) => {
     const r = RECIPES[id];
     const m = s.meds[id];
     if (!m) {
       const unlocked = isUnlocked(s, id);
-      return `<article class="med ${unlocked ? '' : 'locked'}">
+      return `<article class="card ${unlocked ? '' : 'locked'}">
         <header>${ico(r.main, 'lg')}<h3>${r.name}</h3><span class="tag">${unlocked ? '개발 전' : '잠김'}</span></header>
         <p class="cures">${r.cures}</p>
         <p class="recipe">${unlocked ? `처음 개발: ${recipeLine(id, 2)}` : unlockText(id)}</p>
-        ${unlocked ? `<button data-act="develop" data-id="${id}" ${canDevelop(s, id) ? '' : 'disabled'}>개발하기</button>` : ''}
+        ${unlocked ? `<div class="row"><button class="btn small gold" data-act="develop" data-id="${id}" ${canDevelop(s, id) ? '' : 'disabled'}>개발하기</button></div>` : ''}
       </article>`;
     }
     const inMenu = s.menu.includes(id);
-    return `<article class="med ${inMenu ? 'menu' : ''}">
+    return `<article class="card ${inMenu ? 'menu' : ''}">
       <header>${ico(r.main, 'lg')}<h3>${r.name}</h3><span class="tag lv">${m.level}단계</span></header>
       <p class="cures">${r.cures}</p>
       <p class="recipe">${recipeLine(id)} → 3첩 · 한 첩 ${medPrice(s, id, false)}냥</p>
-      <p class="doses">달여 둔 약 <b>${m.doses.n}</b>첩${m.doses.hq ? ` (상급 ${m.doses.hq})` : ''}</p>
+      <p class="doses">달여 둔 약 <b>${m.doses.n}</b>첩${m.doses.hq ? ` · 상급 ${m.doses.hq}` : ''}</p>
       <div class="row">
-        <button data-act="brew" data-id="${id}" ${canBrew(s, id) ? '' : 'disabled'}>달이기 +3첩</button>
-        <button data-act="upgrade" data-id="${id}" ${canUpgradeMed(s, id) ? '' : 'disabled'}>${m.level >= MAX_MED_LEVEL ? '최고 단계' : `강화 (${MATERIALS[r.main].name} ${MED_UPGRADE_MAIN})`}</button>
-        <button data-act="menu" data-id="${id}" class="${inMenu ? 'on' : ''}">${inMenu ? '처방 목록에서 빼기' : '처방 목록에 넣기'}</button>
+        <button class="btn small gold" data-act="brew" data-id="${id}" ${canBrew(s, id) ? '' : 'disabled'}>달이기 +3</button>
+        <button class="btn small" data-act="upgrade" data-id="${id}" ${canUpgradeMed(s, id) ? '' : 'disabled'}>${m.level >= MAX_MED_LEVEL ? '최고 단계' : `강화 · ${MATERIALS[r.main].name} ${MED_UPGRADE_MAIN}`}</button>
+        <button class="btn small ${inMenu ? 'on' : ''}" data-act="menu" data-id="${id}">${inMenu ? '✓ 오늘 낸다' : '오늘 내기'}</button>
       </div>
     </article>`;
   }).join('');
-  const shop = Object.entries(UPGRADES).map(([k, u]) => {
-    const items = Object.entries(u.items).map(([id, n]) => `${ico(id)}${MATERIALS[id].name} ${n}`).join(', ');
-    return `<li>${ico(UPGRADE_ICON[k], 'lg')}<div><b>${u.name}</b><span>${u.desc}</span><small>${u.money}냥 + ${items}</small></div>
-      <button data-act="buy" data-id="${k}" ${canBuyUpgrade(s, k) ? '' : 'disabled'}>${s.upgrades[k] ? '완료' : '맞추기'}</button></li>`;
-  }).join('');
-  const menuNames = s.menu.map((id) => RECIPES[id].name).join(', ') || '없음';
-  $('nightBody').innerHTML = `
-    <section class="nighthead">
-      <div><p class="eyebrow">${s.day}일째 밤</p><h2>화타 의원</h2></div>
-      <dl class="stats"><div><dt>엽전</dt><dd>${ico('coin')}${s.money}냥</dd></div><div><dt>평판</dt><dd>${s.rep}</dd></div><div><dt>오늘 올 환자</dt><dd>${expectedPatients()}명</dd></div></dl>
-    </section>
-    <canvas class="scene" id="scene" aria-label="한의원 안"></canvas>
-    <section><h4>약장</h4><p class="muted">오늘 낼 약은 최대 ${MAX_MENU}가지(지금: ${menuNames}). 약은 미리 달여 두어야 팔 수 있습니다.</p><div class="meds">${meds}</div></section>
-    <section class="two">
-      <div><h4>대장간·물질 도구</h4><ul class="shop">${shop}
-        <li>${ico('netIcon', 'lg')}<div><b>그물 ${ARROW_PACK.count}개</b><span>지금 ${s.arrows}개</span><small>${ARROW_PACK.money}냥</small></div><button data-act="arrows" ${s.money >= ARROW_PACK.money ? '' : 'disabled'}>사기</button></li>
-      </ul></div>
-      <div><h4>망사리와 창고</h4>${invList(s)}<h4 class="sub">포구 장터</h4>${market(s)}</div>
-    </section>
-    <section class="two">${notebook(s)}</section>
-    <div class="go"><button class="primary big" data-act="open">영업 시작</button></div>`;
+}
+
+function sheetHtml(tab) {
+  const s = G.s;
+  const head = (t) => `<h4>${t}<button class="close" data-act="tab" data-id="${tab}">닫기</button></h4>`;
+  if (tab === 'meds') {
+    const menuNames = s.menu.map((id) => RECIPES[id].name).join(', ') || '없음';
+    return `${head('약장')}<p class="muted">오늘 낼 약은 ${MAX_MENU}가지까지(지금: ${menuNames}). 약은 미리 달여 두어야 팝니다.</p><div class="cards">${medCards(s)}</div>`;
+  }
+  if (tab === 'forge') {
+    const shop = Object.entries(UPGRADES).map(([k, u]) => {
+      const items = Object.entries(u.items).map(([id, n]) => `${MATERIALS[id].name} ${n}`).join(', ');
+      return `<li>${ico(UPGRADE_ICON[k], 'lg')}<div><b>${u.name}</b><span>${u.desc}</span><small>${u.money}냥 + ${items}</small></div>
+        <button class="btn small ${s.upgrades[k] ? 'on' : 'gold'}" data-act="buy" data-id="${k}" ${canBuyUpgrade(s, k) ? '' : 'disabled'}>${s.upgrades[k] ? '✓' : '맞추기'}</button></li>`;
+    }).join('');
+    return `${head('대장간 · 물질 도구')}<ul class="list">${shop}
+      <li>${ico('netIcon', 'lg')}<div><b>그물 ${ARROW_PACK.count}개</b><span>지금 ${s.arrows}개</span><small>${ARROW_PACK.money}냥</small></div><button class="btn small gold" data-act="arrows" ${s.money >= ARROW_PACK.money ? '' : 'disabled'}>사기</button></li></ul>`;
+  }
+  if (tab === 'market') return `${head('포구 장터')}${market(s)}<h4 class="sub">망사리와 창고</h4>${invList(s)}`;
+  return `${head('수첩')}${notebook(s)}`;
+}
+
+function renderPrep() {
+  const s = G.s;
+  const keep = $('sheet')?.scrollTop ?? 0;
+  $('night').innerHTML = `
+    <div class="nbar"><span class="eyebrow">${s.day}일째 밤</span><h2>화타 의원</h2><span class="grow"></span>
+      <span class="pill">${ico('coin')}<b>${s.money}</b></span><span class="pill">평판 <b>${s.rep}</b></span><span class="pill">손님 <b>${expectedPatients()}</b></span></div>
+    <div class="stage"><canvas class="scene" id="scene" aria-label="한의원 안"></canvas>${G.nightTab ? `<div class="sheet" id="sheet">${sheetHtml(G.nightTab)}</div>` : ''}</div>
+    <div class="dock"><div class="tabs">${TABS.map(([id, label, icon]) => `<button class="tab ${G.nightTab === id ? 'on' : ''}" data-act="tab" data-id="${id}">${ico(icon)}${label}</button>`).join('')}</div>
+      <button class="btn gold go" data-act="open">영업 시작</button></div>`;
+  if ($('sheet')) $('sheet').scrollTop = keep;
   G.sceneMode = 'prep';
 }
 
@@ -1543,15 +1694,17 @@ function onNightClick(e) {
   const b = e.target.closest('button[data-act]');
   if (!b) return;
   unlockAudio();
+  vib(8);
   const s = G.s, id = b.dataset.id;
   const act = b.dataset.act;
+  if (act === 'tab') { sfx.click(); G.nightTab = G.nightTab === id ? null : id; return renderPrep(); }
   if (act === 'develop') { if (develop(s, id).ok) { sfx.page(); toast(`${RECIPES[id].name} 개발 완료!`, 'good'); } }
   else if (act === 'brew') { const r = brew(s, id); if (r.ok) { sfx.bubble(); toast(`${RECIPES[id].name} 3첩${r.hq ? ' (상급)' : ''}`, 'good'); } }
   else if (act === 'upgrade') { if (upgradeMed(s, id).ok) { sfx.pickHq(); toast(`${RECIPES[id].name} ${s.meds[id].level}단계`, 'good'); } }
   else if (act === 'menu') {
     sfx.click();
     if (s.menu.includes(id)) s.menu = s.menu.filter((x) => x !== id);
-    else if (s.menu.length >= MAX_MENU) toast(`처방 목록은 ${MAX_MENU}가지까지입니다`, 'bad');
+    else if (s.menu.length >= MAX_MENU) toast(`오늘 낼 약은 ${MAX_MENU}가지까지입니다`, 'bad');
     else s.menu.push(id);
   } else if (act === 'buy') { if (buyUpgrade(s, id).ok) { sfx.coin(); toast(`${UPGRADES[id].name}을(를) 새로 맞췄습니다`, 'good'); } }
   else if (act === 'arrows') { if (buyArrows(s).ok) sfx.coin(); }
@@ -1562,16 +1715,13 @@ function onNightClick(e) {
   else if (act === 'send') return sendAway();
   else if (act === 'sleep') return sleep();
   else if (act === 'restart') return restart();
-  if (s.phase === 'night' && !G.night) {
-    const y = $('night').scrollTop;
-    renderPrep();
-    $('night').scrollTop = y;
-  }
+  if (s.phase === 'night' && !G.night && G.sceneMode === 'prep') renderPrep();
 }
 
 function startService() {
   const s = G.s;
-  if (!s.menu.length) return toast('처방 목록에 약을 하나 이상 넣으세요', 'bad');
+  if (!s.menu.length) return toast('약장에서 오늘 낼 약을 하나 이상 고르세요', 'bad');
+  if (!s.menu.some((id) => s.meds[id].doses.n > 0)) toast('달여 둔 약이 하나도 없습니다! 약장에서 먼저 달이세요', 'bad');
   sfx.bell();
   const rng = mulberry32(G.seed + s.day * 31337);
   const total = patientsForDay(s) + (s.flags.earlyBonus ? 2 : 0);
@@ -1579,19 +1729,16 @@ function startService() {
   if (s.flags.zhangfeiVisit && !s.flags.zhangfei) types.unshift('zhangfei');
   G.night = { t: 0, types, queue: [], spawnT: 0, interval: (NIGHT_SECONDS - 30) / types.length, brewing: null, earned: 0, stars: 0, served: 0, wrong: 0, left: 0, next: 1, steam: [], bubbleT: 0 };
   const wide = hasPage(s, 2);
-  $('night').scrollTop = 0;
-  $('nightBody').innerHTML = `
-    <section class="service">
-      <div class="svtop"><div class="bar"><i id="nightFill"></i></div><span id="svMoney"></span></div>
-      <canvas class="scene" id="scene" aria-label="한의원 안"></canvas>
-      <div class="front" id="front"></div>
-      <div class="brew" id="brew" hidden>
+  $('night').innerHTML = `
+    <div class="nbar"><span class="eyebrow">${s.day}일째 밤 영업</span><div class="timer"><i id="nightFill"></i></div>
+      <span class="pill">${ico('coin')}<b id="svMoney">0</b></span><span class="pill">★ <b id="svStars">0</b></span></div>
+    <div class="stage"><canvas class="scene" id="scene" aria-label="한의원 안"></canvas><div id="front"></div>
+      <div class="brewbox" id="brew" hidden>
         <p id="brewName"></p>
         <div class="gauge"><span style="flex:28" class="z1"></span><span style="flex:${wide ? 10 : 14}" class="z2"></span><span style="flex:${wide ? 24 : 16}" class="z3"></span><span style="flex:${wide ? 10 : 14}" class="z2"></span><span style="flex:28" class="z1"></span><i id="needle"></i></div>
-        <button class="primary big" data-act="fire">불을 끈다</button>
-      </div>
-      <div class="medbar" id="medbar"></div>
-    </section>`;
+        <button class="btn gold" data-act="fire">불 끄기!</button>
+      </div></div>
+    <div class="meds" id="medbar"></div>`;
   G.sceneMode = 'service';
   renderMedbar();
   renderQueue();
@@ -1605,9 +1752,9 @@ function renderMedbar() {
   const front = n.queue[0];
   $('medbar').innerHTML = s.menu.map((id) => {
     const d = s.meds[id].doses;
-    return `<button data-act="serve" data-id="${id}" ${d.n > 0 && front && !n.brewing ? '' : 'disabled'}>
+    return `<button class="medbtn" data-act="serve" data-id="${id}" ${d.n > 0 && front && !n.brewing ? '' : 'disabled'}>
       <b>${ico(RECIPES[id].main)}${RECIPES[id].name}</b><span>${RECIPES[id].cures}</span><small>${d.n}첩 남음</small></button>`;
-  }).join('') + `<button class="ghost" data-act="send" ${front && !n.brewing ? '' : 'disabled'}><b>돌려보내기</b><span>맞는 약이 없을 때</span></button>`;
+  }).join('') + `<button class="medbtn ghost" data-act="send" ${front && !n.brewing ? '' : 'disabled'}><b>돌려보내기</b><span>맞는 약이 없을 때</span></button>`;
 }
 
 const CLUES = {
@@ -1623,12 +1770,12 @@ function renderQueue() {
   const front = n.queue[0];
   const fr = $('front');
   if (!front) {
-    fr.innerHTML = `<p class="empty">${n.types.length ? '다음 환자를 기다리는 중...' : '오늘 환자를 모두 보았습니다.'}</p>`;
+    fr.innerHTML = `<div class="waitmsg">${n.types.length ? '다음 손님을 기다리는 중…' : '오늘 손님을 모두 보았습니다'}</div>`;
     return;
   }
   const P = PATIENTS[front.type];
   const clue = CLUES[front.type];
-  fr.innerHTML = `<div class="bubble"><b>${P.name}</b><p>"${P.line}"</p>${clue ? `<small>${clue}</small>` : ''}</div>`;
+  fr.innerHTML = `<div class="speech"><b>${P.name}</b><p>"${P.line}"</p>${clue ? `<small>${clue}</small>` : ''}</div>`;
 }
 
 function pickMed(id) {
@@ -1719,7 +1866,8 @@ function updateNight(dt) {
     if (n.bubbleT <= 0) { sfx.bubble(); n.bubbleT = 0.35; }
   }
   $('nightFill').style.width = `${Math.max(0, 1 - n.t / NIGHT_SECONDS) * 100}%`;
-  $('svMoney').textContent = `오늘 ${n.earned}냥 · 별 ${n.stars}`;
+  $('svMoney').textContent = n.earned;
+  $('svStars').textContent = n.stars;
   const done = !n.types.length && !n.queue.length;
   if ((n.t >= NIGHT_SECONDS || done) && !n.brewing) endService();
 }
@@ -1736,7 +1884,7 @@ function drawScene(dt) {
   g.setTransform(dpr, 0, 0, dpr, 0, 0);
   g.imageSmoothingEnabled = false;
   const w = r.width, h = r.height;
-  const u = h / 30;
+  const u = Math.min(h / 30, w / 48);
   g.fillStyle = '#e9dcc0';
   g.fillRect(0, 0, w, h);
   g.fillStyle = '#d8c7a4';
@@ -1828,21 +1976,41 @@ function drawSpriteOn(g, key, x, y, px, flip) {
   g.drawImage(s, Math.round(x), Math.round(y), s.width * px, s.height * px);
 }
 
+function resultShell(inner) {
+  const s = G.s;
+  $('night').innerHTML = `
+    <div class="nbar"><span class="eyebrow">${s.day}일째 밤</span><h2>화타 의원</h2><span class="grow"></span><span class="pill">${ico('coin')}<b>${s.money}</b></span></div>
+    <div class="stage"><canvas class="scene" id="scene" aria-label="한의원 안"></canvas><div class="result">${inner}</div></div>`;
+  G.sceneMode = 'prep';
+}
+
+function countUp(el, to) {
+  const t0 = performance.now();
+  const step = (now) => {
+    const k = Math.min(1, (now - t0) / 900);
+    el.textContent = `${Math.round(to * k * (2 - k))}냥`;
+    if (k < 1) requestAnimationFrame(step);
+  };
+  requestAnimationFrame(step);
+}
+
 function endService() {
   const n = G.night, s = G.s;
   G.night = null;
-  sfx.bell();
   const left = n.queue.length + n.types.length;
-  const body = [
-    `번 돈 ${n.earned}냥 · 별 ${n.stars}개`,
-    `제대로 고친 환자 ${n.served}명${n.wrong ? ` · 잘못 준 약 ${n.wrong}번` : ''}${n.left + left ? ` · 그냥 돌아간 환자 ${n.left + left}명` : ''}`,
-    `지금 엽전 ${s.money}냥 · 평판 ${s.rep}`,
+  const rating = n.served ? Math.round(n.stars / n.served) : 0;
+  const lines = [
+    `제대로 고친 손님 ${n.served}명${n.wrong ? ` · 잘못 준 약 ${n.wrong}번` : ''}${n.left + left ? ` · 그냥 돌아간 손님 ${n.left + left}명` : ''}`,
+    `평판 ${s.rep}`,
   ];
-  if (s.flags.zhangfei && !s.flags.zhangfeiNoted) { s.flags.zhangfeiNoted = true; body.push('', '장비가 한의원 일을 돕기로 했다. 줄 선 환자들이 더 오래 기다려 준다.'); }
-  $('nightBody').innerHTML = `<section class="summary"><p class="eyebrow">${s.day}일째 밤 영업 끝</p><h2>오늘의 진료</h2>
-    ${body.map((l) => (l ? `<p>${l}</p>` : '<hr>')).join('')}
-    <div class="go"><button class="primary big" data-act="sleep">${s.day >= DAYS ? '1부를 마친다' : '잠자리에 든다'}</button></div></section>`;
-  G.sceneMode = null;
+  if (s.flags.zhangfei && !s.flags.zhangfeiNoted) { s.flags.zhangfeiNoted = true; lines.push('장비가 한의원 일을 돕기로 했다. 줄 선 손님들이 더 오래 기다려 준다.'); }
+  resultShell(`<span class="eyebrow">${s.day}일째 밤 영업 끝</span><h2>오늘의 진료</h2>
+    <div class="stars">${[1, 2, 3].map((i) => `<span class="${i <= rating ? 'on' : ''}" style="animation-delay:${0.2 + i * 0.25}s">★</span>`).join('')}</div>
+    <div class="big-num" id="earned">0냥</div>
+    ${lines.map((l) => `<p>${l}</p>`).join('')}
+    <button class="btn gold" data-act="sleep">${s.day >= DAYS ? '1부를 마친다' : '잠자리에 든다'}</button>`);
+  countUp($('earned'), n.earned);
+  for (let i = 1; i <= rating; i++) setTimeout(() => { sfx.coin(); vib(15); }, 200 + i * 250);
 }
 
 function sleep() {
@@ -1856,14 +2024,14 @@ function renderEnding() {
   s.phase = 'end';
   save();
   const meds = Object.keys(s.meds).map((id) => `${RECIPES[id].name} ${s.meds[id].level}단계`).join(', ');
-  $('nightBody').innerHTML = `<section class="summary ending"><p class="eyebrow">시제품 · 바닷가 마을</p><h2>1부 끝</h2>
-    <p>일주일 동안 바닷가 한의원을 꾸렸습니다. 엽전 ${s.money}냥, 평판 ${s.rep}.</p>
+  resultShell(`<span class="eyebrow">시제품 · 바닷가 마을</span><h2>1부 끝</h2>
+    <div class="big-num">${s.money}냥</div>
+    <p>일주일 동안 바닷가 한의원을 꾸렸습니다. 평판 ${s.rep}.</p>
     <p>익힌 약: ${meds}</p>
     <p>청낭서 ${(s.pages ?? []).length}/3장 · 재료 도감 ${Object.keys(s.dex ?? {}).length}가지</p>
-    <p>${s.flags.zhangfei ? '장비가 조수로 들어왔습니다. "형님들께도 의원 양반 얘기를 해 두겠소!"' : '물에 빠졌던 큰 사내는 끝내 한의원에 오지 않았습니다. 다음에는 북어탕을 미리 달여 두세요.'}</p>
+    <p>${s.flags.zhangfei ? '장비가 조수로 들어왔습니다. "형님들께도 의원 양반 얘기를 해 두겠소!"' : '물에 빠졌던 큰 사내는 끝내 오지 않았습니다. 다음에는 북어탕을 미리 달여 두세요.'}</p>
     <hr><p>다음 이야기: 해구 밑바닥의 난파선. 첫 보스 「검은지느러미 상어」와 유비 삼형제가 기다립니다.</p>
-    <div class="go"><button class="primary big" data-act="restart">처음부터 다시</button></div></section>`;
-  G.sceneMode = null;
+    <button class="btn gold" data-act="restart">처음부터 다시</button>`);
 }
 
 function restart() {
@@ -1908,14 +2076,15 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
+// 왼쪽 아래 아무 데나 엄지를 대면 그 자리에 조이스틱이 생긴다
 function bindJoystick() {
+  const zone = $('joyzone');
   const pad = $('joy');
   const knob = $('joyKnob');
+  let cx = 0, cy = 0;
   const move = (e) => {
-    const r = pad.getBoundingClientRect();
-    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
     let dx = e.clientX - cx, dy = e.clientY - cy;
-    const max = r.width * 0.42;
+    const max = 50;
     const len = Math.hypot(dx, dy);
     if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
     joy.x = dx / max;
@@ -1923,38 +2092,78 @@ function bindJoystick() {
     if (Math.hypot(joy.x, joy.y) < 0.15) joy.x = joy.y = 0;
     knob.style.transform = `translate(${dx}px, ${dy}px)`;
   };
-  pad.addEventListener('pointerdown', (e) => {
+  zone.addEventListener('pointerdown', (e) => {
     e.preventDefault();
     unlockAudio();
+    if (joy.id !== null) return;
     joy.id = e.pointerId;
-    pad.setPointerCapture(e.pointerId);
+    zone.setPointerCapture(e.pointerId);
+    const r = $('app').getBoundingClientRect();
+    cx = e.clientX;
+    cy = e.clientY;
+    pad.style.left = `${cx - r.left}px`;
+    pad.style.top = `${cy - r.top}px`;
+    pad.classList.add('on');
     move(e);
   });
-  pad.addEventListener('pointermove', (e) => { if (e.pointerId === joy.id) move(e); });
-  const end = (e) => { if (e.pointerId !== joy.id) return; joy.id = null; joy.x = joy.y = 0; knob.style.transform = ''; };
-  pad.addEventListener('pointerup', end);
-  pad.addEventListener('pointercancel', end);
-  pad.addEventListener('contextmenu', (e) => e.preventDefault());
+  zone.addEventListener('pointermove', (e) => { if (e.pointerId === joy.id) move(e); });
+  const end = (e) => {
+    if (e.pointerId !== joy.id) return;
+    joy.id = null;
+    joy.x = joy.y = 0;
+    knob.style.transform = '';
+    pad.classList.remove('on');
+    pad.style.left = '';
+    pad.style.top = '';
+  };
+  zone.addEventListener('pointerup', end);
+  zone.addEventListener('pointercancel', end);
+  zone.addEventListener('contextmenu', (e) => e.preventDefault());
 }
 
 function bindUi() {
   bindJoystick();
   for (const b of document.querySelectorAll('[data-mode]')) {
-    b.addEventListener('click', () => { unlockAudio(); sfx.click(); setMode(b.dataset.mode); });
+    b.addEventListener('click', () => { unlockAudio(); sfx.click(); vib(8); setMode(b.dataset.mode); });
   }
+  const act = $('actBtn');
+  act.addEventListener('pointerdown', (e) => { e.preventDefault(); act.setPointerCapture(e.pointerId); actPress(); });
+  act.addEventListener('pointerup', actRelease);
+  act.addEventListener('pointercancel', actRelease);
+  act.addEventListener('contextmenu', (e) => e.preventDefault());
   $('homeBtn').addEventListener('click', () => { if (!G.paused) askHome(); });
-  $('muteBtn').addEventListener('click', () => { unlockAudio(); $('muteBtn').classList.toggle('off', toggleMute()); });
-  $('muteBtn').classList.toggle('off', isMuted());
-  $('trackerToggle').addEventListener('click', () => $('tracker').classList.toggle('closed'));
+  $('goal').addEventListener('click', () => { G.goalIdx = (G.goalIdx ?? 0) + 1; renderTracker(); sfx.click(); });
   $('bagBtn').addEventListener('click', () => {
     if (G.paused) return;
     openPanel({
       title: '망사리',
       body: Object.entries(G.s.inv).filter(([, v]) => v.n > 0).map(([id, v]) => `${MATERIALS[id].name} ${v.n}${v.hq ? ` (상급 ${v.hq})` : ''}`).join('\n') || '아직 아무것도 없습니다.',
       icon: 'netIcon',
-      choices: [{ label: '닫기', onClick: closePanel }],
+      choices: [{ label: '닫기', kind: 'primary', onClick: closePanel }],
     });
   });
+  // 일시정지
+  const syncLabels = () => {
+    $('soundBtn').textContent = isMuted() ? '소리 켜기' : '소리 끄기';
+    $('vibeBtn').textContent = settings.vibe ? '진동 끄기' : '진동 켜기';
+  };
+  $('pauseBtn').addEventListener('click', () => {
+    if (G.paused) return;
+    G.paused = true;
+    releaseInput();
+    syncLabels();
+    $('helpText').hidden = true;
+    $('restartConfirm').hidden = true;
+    $('pause').hidden = false;
+  });
+  $('resumeBtn').addEventListener('click', () => { $('pause').hidden = true; G.paused = false; });
+  $('soundBtn').addEventListener('click', () => { unlockAudio(); toggleMute(); syncLabels(); sfx.click(); });
+  $('vibeBtn').addEventListener('click', () => { settings.vibe = !settings.vibe; saveSettings(); syncLabels(); vib(30); });
+  $('helpBtn').addEventListener('click', () => { $('helpText').hidden = !$('helpText').hidden; });
+  $('restartAsk').addEventListener('click', () => { $('restartConfirm').hidden = false; });
+  $('restartYes').addEventListener('click', () => { $('pause').hidden = true; restart(); });
+  // 세로 화면 안내
+  $('rotateSkip').addEventListener('click', () => { settings.rotateSkip = true; saveSettings(); $('rotate').hidden = true; });
   for (const m of MODES) {
     const img = document.querySelector(`[data-mode="${m}"] img`);
     if (img) img.src = iconURL(TOOL_SPRITE[m]);
@@ -1962,10 +2171,45 @@ function bindUi() {
   for (const img of document.querySelectorAll('img[data-icon]')) img.src = iconURL(img.dataset.icon);
 }
 
+function checkRotate() {
+  const phone = matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0;
+  $('rotate').hidden = !(phone && innerHeight > innerWidth && !settings.rotateSkip);
+}
+
+// 타이틀 화면
+function showTitle() {
+  const t = $('title');
+  t.hidden = false;
+  paintPortrait($('titleHero'), 'swim');
+  if (!t.querySelector('.bub')) {
+    for (let i = 0; i < 16; i++) {
+      const b = document.createElement('span');
+      b.className = 'bub';
+      const size = 6 + Math.random() * 22;
+      b.style.cssText = `left:${Math.random() * 100}%;width:${size}px;height:${size}px;animation-duration:${6 + Math.random() * 8}s;animation-delay:${-Math.random() * 10}s`;
+      t.prepend(b);
+    }
+  }
+  const has = !!loadSaved();
+  $('continueBtn').hidden = !has;
+  $('newBtn').className = has ? 'btn' : 'btn gold';
+  $('newConfirm').hidden = true;
+}
+
+function enterGame() {
+  $('title').hidden = true;
+  unlockAudio();
+  sfx.splash();
+  if (G.s.phase === 'night') { $('dayui').hidden = true; $('night').hidden = false; renderPrep(); }
+  else if (G.s.phase === 'end') { $('dayui').hidden = true; $('night').hidden = false; renderEnding(); }
+  else startDay();
+}
+
 const KEY_MODES = { 1: 'hand', 2: 'harpoon', 3: 'net', 4: 'shovel' };
 
 function boot(hotData) {
-  const data = restore(hotData) ?? loadSaved() ?? freshGame();
+  const hot = restore(hotData);
+  const data = hot ?? loadSaved() ?? freshGame();
   G = { ...data, ...runtime() };
   resize();
   bindUi();
@@ -1975,20 +2219,39 @@ function boot(hotData) {
   cvs.addEventListener('pointercancel', onPointerUp);
   cvs.addEventListener('pointerleave', () => { if (G) G.hover = null; });
   cvs.addEventListener('contextmenu', (e) => e.preventDefault());
-  $('nightBody').addEventListener('click', onNightClick);
-  window.addEventListener('resize', resize);
+  $('night').addEventListener('click', onNightClick);
+  $('continueBtn').addEventListener('click', () => { G = { ...(loadSaved() ?? freshGame()), ...runtime() }; enterGame(); });
+  $('newBtn').addEventListener('click', () => {
+    if (loadSaved()) { $('newConfirm').hidden = false; return; }
+    G = { ...freshGame(), ...runtime() };
+    enterGame();
+  });
+  $('newYes').addEventListener('click', () => {
+    try { localStorage.removeItem(SAVE_KEY); } catch { /* 무시 */ }
+    G = { ...freshGame(), ...runtime() };
+    enterGame();
+  });
+  window.addEventListener('resize', () => { resize(); checkRotate(); });
   window.addEventListener('keydown', (e) => {
     const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
     keys.add(k);
     if (KEY_MODES[k] && G?.s.phase === 'day' && !G.paused) setMode(KEY_MODES[k]);
+    if ((k === 'e' || k === 'Enter') && !e.repeat) actPress();
     if (e.key === ' ' || e.key.startsWith('Arrow')) e.preventDefault();
   });
-  window.addEventListener('keyup', (e) => keys.delete(e.key.length === 1 ? e.key.toLowerCase() : e.key));
+  window.addEventListener('keyup', (e) => {
+    const k = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+    keys.delete(k);
+    if (k === 'e' || k === 'Enter') actRelease();
+  });
   window.addEventListener('blur', () => { keys.clear(); releaseInput(); });
   window.claude?.hot?.snapshot?.(() => (G ? snapshot() : null));
-  if (G.s.phase === 'night') { $('dayui').hidden = true; $('night').hidden = false; renderPrep(); }
-  else if (G.s.phase === 'end') { $('dayui').hidden = true; $('night').hidden = false; renderEnding(); }
-  else startDay();
+  checkRotate();
+  if (hot) enterGame();
+  else {
+    $('dayui').hidden = true;
+    showTitle();
+  }
   requestAnimationFrame(frame);
 }
 
