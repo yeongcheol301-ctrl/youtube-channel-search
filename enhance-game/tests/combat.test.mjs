@@ -73,11 +73,6 @@ test('makeBoss is deterministic and grows', () => {
   assert.ok(makeBoss(7).types.length === 2);
 });
 
-test('combining two +10 into next grade is an upgrade', () => {
-  assert.ok(weaponAttack(w('sword', { grade: 1 }), ctx) > 1.5 * weaponAttack(w('sword', { level: 10 }), ctx));
-  assert.ok(weaponAttack(w('sword', { grade: 2 }), ctx) > weaponAttack(w('sword', { grade: 1 }), ctx));
-});
-
 test('minerals scale linearly with mining DPS', () => {
   const one = [w('sword', { level: 10 })];
   const two = [w('sword', { level: 10 }), w('sword', { level: 10, id: 2 })];
@@ -89,4 +84,8 @@ test('minerals scale linearly with mining DPS', () => {
 test('a building upgrade raises minerals per DPS', () => {
   const one = [w('sword', { level: 5 })];
   assert.ok(mineralsPerSec(one, 1, ctx) > mineralsPerSec(one, 0, ctx));
+});
+
+test('higher grade hits harder at the same level', () => {
+  assert.ok(weaponAttack(w('sword', { grade: 1, level: 20 }), ctx) > weaponAttack(w('sword', { level: 20 }), ctx));
 });

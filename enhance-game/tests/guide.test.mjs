@@ -39,3 +39,12 @@ test('with weapons and no boss in reach the step is to enhance', () => {
   const s = newGame(); buy(s, 'sword');
   assert.equal(nextStep(s).key, 'enhance');
 });
+
+test('a promotable weapon becomes the next step with a one-tap action', () => {
+  const s = newGame(); s.minerals = 1e9; buy(s, 'sword'); buy(s, 'sword');
+  s.weapons[0].level = 20; s.weapons[0].traits = ['atkPct', 'atkPct'];
+  s.maxStage = 99;
+  const st = nextStep(s);
+  assert.equal(st.key, 'promote'); assert.equal(st.act, 'promote-all');
+  assert.equal(alerts(s).forge, true);
+});

@@ -2,7 +2,7 @@
 import { createRequire } from 'node:module';
 const { chromium } = createRequire(import.meta.url)('playwright');
 const out = new URL('../shots/', import.meta.url).pathname;
-const weapons = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, type: 'sword', grade: 0, level: i < 4 ? 10 + i : i % 5 === 0 ? 14 : 3, type: ['sword', 'axe', 'staff', 'bow'][i % 4], pity: 0, traits: i === 8 ? ['atkPct'] : [], pendingTraits: null, loc: 'mine' }));
+const weapons = Array.from({ length: 30 }, (_, i) => ({ id: i + 1, type: 'sword', grade: 0, level: i < 4 ? 20 : i % 5 === 0 ? 14 : 3, type: ['sword', 'axe', 'staff', 'bow'][i % 4], pity: 0, traits: i === 8 ? ['atkPct'] : [], pendingTraits: null, loc: 'mine' }));
 const save = { minerals: 1740000, weapons, nextId: 31, building: { tier: 0, hp: 5, hpLeft: 5, t: 0 }, bestDps: 0, bestDpsAt: 0, bestLevel: 10, maxStage: 0, lastSeen: Date.now(), meta: { coins: 0, rebirths: 0, unlocked: ['sword', 'axe', 'staff', 'bow'], perm: {}, discovered: [] } };
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 416, height: 900 }, deviceScaleFactor: 2 });
@@ -24,7 +24,8 @@ await page.waitForTimeout(700);
 await page.screenshot({ path: out + 'sc-mine.png', fullPage: true });
 await page.click('.tabs [data-tab="forge"]');
 await page.waitForTimeout(300);
-await page.click('[data-act="combine-all"]');
+await page.screenshot({ path: out + 'sc-before-promote.png' });
+await page.click('[data-act="promote-all"]');
 await page.waitForTimeout(400);
 await page.screenshot({ path: out + 'sc-combine.png' });
 await page.click('.tabs [data-tab="boss"]');

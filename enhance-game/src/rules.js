@@ -1,6 +1,8 @@
 // 게임 규칙: DOM 없이 계산만 한다. 숫자는 기획안 예시값.
 
 export const MAX_LEVEL = 50;
+// 등급마다 강화할 수 있는 끝 단계. 끝에 닿으면 승급해야 더 올라간다. 단계는 승급해도 이어진다.
+export const GRADE_CAPS = [20, 30, 40, 45, 50];
 export const TRAIT_LEVELS = [10, 20, 30, 40];
 
 export const TRAITS = {
@@ -60,12 +62,12 @@ export function enhanceCost(level, type, discount = 0) {
 }
 
 // weapon.level, weapon.pity를 바꾸고 결과를 돌려준다. rng: () => [0,1)
-export function rollEnhance(weapon, rng, bonusPct = 0) {
-  if (weapon.level >= MAX_LEVEL) return { result: 'max', level: weapon.level };
+export function rollEnhance(weapon, rng, bonusPct = 0, cap = MAX_LEVEL) {
+  if (weapon.level >= cap) return { result: 'max', level: weapon.level };
   const guaranteed = weapon.pity >= 100;
   if (guaranteed || rng() < successRate(weapon.level, weapon.type, bonusPct)) {
     const jump = weapon.type === 'staff' && rng() < 0.15 ? 2 : 1;
-    weapon.level = Math.min(MAX_LEVEL, weapon.level + jump);
+    weapon.level = Math.min(cap, weapon.level + jump);
     weapon.pity = 0;
     return { result: jump === 2 ? 'up2' : 'up', level: weapon.level };
   }
@@ -97,7 +99,7 @@ export function formatNumber(n) {
 // ---- 전투·채집 ----
 
 export const ATK_GROWTH = 1.25;
-export const GRADE_MULT = 20;
+export const GRADE_MULT = 3;
 const BASE_SPEED = { sword: 1, axe: 0.8, staff: 0.7, bow: 1.4 };
 const BASE_CRIT = { chance: 0.05, mult: 2 };
 export const GRADES = ['일반', '희귀', '전설', '히어로', '초월'];
@@ -136,7 +138,7 @@ export const BOSS_TYPES = {
   regen: { name: '재생', hint: '체력이 계속 회복 → 짧게 몰아치기' },
 };
 const BOSS_ORDER = ['giant', 'armored', 'barrier', 'multihit', 'regen'];
-export const BOSS_TUNING = { hp: 300, hpGrowth: 6, armor: 0.5, armorGrowth: 1.8 };
+export const BOSS_TUNING = { hp: 300, hpGrowth: 3, armor: 0.5, armorGrowth: 1.8 };
 export const FIGHT_SECONDS = 30;
 
 export function bossTypesFor(stage) {

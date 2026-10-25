@@ -109,3 +109,12 @@ test('auto enhance picks the recommended trait, not the first one', () => {
   autoStep(s, { target: 20 }, always(0));
   assert.deepEqual(s.weapons[0].traits, ['critMult']);
 });
+
+test('auto enhance promotes a capped weapon and skips capped ones it cannot promote', () => {
+  const s = newGame(); s.minerals = 1e9; buy(s, 'sword');
+  s.weapons[0].level = 20; s.weapons[0].traits = ['atkPct', 'atkPct'];
+  autoStep(s, { target: 25 }, always(0));
+  assert.equal(s.weapons.length, 2, 'cannot promote alone, so it buys a new sword instead of trying to enhance');
+  autoStep(s, { target: 25 }, always(0));
+  assert.equal(s.weapons.length, 1); assert.equal(s.weapons[0].grade, 1);
+});

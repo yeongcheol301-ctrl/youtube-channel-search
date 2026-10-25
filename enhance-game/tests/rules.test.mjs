@@ -86,3 +86,8 @@ test('formatNumber huge', () => {
   assert.ok(s.includes('경')); assert.ok(!/NaN|Infinity/.test(s));
   assert.ok(!/NaN|Infinity/.test(formatNumber(Infinity)));
 });
+
+test('a two-step jump never passes the grade cap', () => {
+  const wpn = { type: 'staff', level: 19, pity: 0 };
+  assert.equal(rollEnhance(wpn, () => 0, 0, 20).level, 20);
+});

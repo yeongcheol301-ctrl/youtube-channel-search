@@ -1,6 +1,6 @@
 // 게임 상태와 행동. 행동은 모두 {ok, reason?, ...}를 돌려주고, 실패하면 상태를 바꾸지 않는다.
 import {
-  WEAPONS, TRAIT_LEVELS, MAX_LEVEL, GRADES, GRADE_MULT, rollEnhance, enhanceCost,
+  WEAPONS, TRAIT_LEVELS, MAX_LEVEL, GRADES, GRADE_MULT, GRADE_CAPS, rollEnhance, enhanceCost,
   buildingStats, mineralsPerSec, buildingDps,
 } from './rules.js';
 
@@ -43,8 +43,12 @@ export function newGame(meta = newMeta()) {
 const find = (s, id) => s.weapons.find((w) => w.id === id);
 const discount = (s) => Math.min(0.5, 0.05 * permLevel(s, 'discount'));
 
+// 같은 종류를 많이 가질수록 한 자루 값이 12%씩 오른다(숫자로만 밀어붙이지 않게).
+export const BUY_GROWTH = 1.12;
+
 export function buyPrice(s, type) {
-  return Math.round(WEAPONS[type].price * (1 - discount(s)));
+  const owned = s.weapons.filter((w) => w.type === type).length;
+  return Math.round(WEAPONS[type].price * (1 - discount(s)) * Math.pow(BUY_GROWTH, owned));
 }
 
 function discover(s, w) {
@@ -65,7 +69,7 @@ export function buy(s, type) {
 }
 
 export function enhancePrice(s, w) {
-  return enhanceCost(w.level, w.type, discount(s)) * Math.pow(2, w.grade);
+  return enhanceCost(w.level, w.type, discount(s));
 }
 
 // 무기 전용 풀에서 서로 다른 특성 3개를 뽑는다(풀에 많이 든 특성일수록 잘 뜸).
@@ -88,11 +92,12 @@ export function enhance(s, id, rng) {
   const w = find(s, id);
   if (!w) return fail('없는 무기');
   if (w.pendingTraits) return fail('특성을 먼저 고르세요');
-  if (w.level >= MAX_LEVEL) return fail('최고 단계');
+  const cap = GRADE_CAPS[w.grade];
+  if (w.level >= cap) return fail(w.grade < GRADES.length - 1 ? '승급이 필요합니다' : '최고 단계');
   const cost = enhancePrice(s, w);
   if (s.minerals < cost) return fail('미네랄 부족');
   s.minerals -= cost;
-  const r = rollEnhance(w, rng, permLevel(s, 'success'));
+  const r = rollEnhance(w, rng, permLevel(s, 'success'), cap);
   if (r.result === 'destroy') {
     s.weapons = s.weapons.filter((x) => x !== w);
     return { ok: true, result: 'destroy', weapon: w };
@@ -115,7 +120,7 @@ export function pickTrait(s, id, key) {
 }
 
 export function sellValue(w) {
-  return Math.round(WEAPONS[w.type].price * 0.5 * Math.pow(1.25, w.level) * Math.pow(GRADE_MULT, w.grade));
+  return Math.round(WEAPONS[w.type].price * 0.5 * Math.pow(1.25, w.level) * (1 + w.grade));
 }
 
 export function sell(s, id) {
@@ -133,41 +138,50 @@ export function assign(s, id, loc) {
   return { ok: true };
 }
 
-export const COMBINE_LEVEL = 10;
+// ---- 승급 ----
+export const PROMOTE_BASE = 5000;
 
-export function canCombine(a, b) {
-  return !!a && !!b && a !== b && a.grade === b.grade && a.grade < GRADES.length - 1
-    && a.level >= COMBINE_LEVEL && b.level >= COMBINE_LEVEL && !a.pendingTraits && !b.pendingTraits;
+export function promoteCost(grade) {
+  return PROMOTE_BASE * Math.pow(6, grade);
 }
 
-export function combine(s, idA, idB) {
-  const a = find(s, idA), b = find(s, idB);
-  if (!canCombine(a, b)) return fail('같은 등급 +10 이상 두 자루가 필요');
-  s.weapons = s.weapons.filter((x) => x !== a && x !== b);
-  const w = { id: s.nextId++, type: a.type, grade: a.grade + 1, level: 0, pity: 0, traits: [], pendingTraits: null, loc: a.loc };
-  s.weapons.push(w);
+export function atCap(w) {
+  return w.level >= GRADE_CAPS[w.grade];
+}
+
+// 재료: 같은 종류·같은 등급 중 가장 낮은 단계 무기 한 자루.
+export function promoteMaterial(s, w) {
+  return s.weapons
+    .filter((x) => x !== w && x.type === w.type && x.grade === w.grade && !x.pendingTraits)
+    .sort((a, b) => a.level - b.level)[0] ?? null;
+}
+
+export function canPromote(s, w) {
+  return !!w && w.grade < GRADES.length - 1 && atCap(w) && !w.pendingTraits
+    && !!promoteMaterial(s, w) && s.minerals >= promoteCost(w.grade);
+}
+
+export function promote(s, id) {
+  const w = find(s, id);
+  if (!w) return fail('없는 무기');
+  if (w.grade >= GRADES.length - 1) return fail('최고 등급');
+  if (!atCap(w)) return fail(`+${GRADE_CAPS[w.grade]}강에서 승급할 수 있습니다`);
+  const mat = promoteMaterial(s, w);
+  if (!mat) return fail(`재료로 같은 ${GRADES[w.grade]} ${WEAPONS[w.type].name} 한 자루가 더 필요합니다`);
+  if (s.minerals < promoteCost(w.grade)) return fail('미네랄 부족');
+  s.minerals -= promoteCost(w.grade);
+  s.weapons = s.weapons.filter((x) => x !== mat);
+  w.grade += 1;
   discover(s, w);
-  return { ok: true, weapon: w };
+  return { ok: true, weapon: w, material: mat };
 }
 
-// 조합할 수 있는 쌍이 없을 때까지 합친다. 같은 종류끼리 먼저, 그다음 등급이 같은 아무 무기끼리.
-export function combineAll(s) {
+export function promoteAll(s) {
   let count = 0;
   for (;;) {
-    const ready = s.weapons.filter((w) => w.level >= COMBINE_LEVEL && !w.pendingTraits).sort((a, b) => b.level - a.level);
-    let pair = null;
-    for (const a of ready) {
-      const b = ready.find((x) => x !== a && x.type === a.type && canCombine(a, x)) ?? null;
-      if (b) { pair = [a, b]; break; }
-    }
-    if (!pair) {
-      for (const a of ready) {
-        const b = ready.find((x) => canCombine(a, x));
-        if (b) { pair = [a, b]; break; }
-      }
-    }
-    if (!pair) return { ok: true, count };
-    combine(s, pair[0].id, pair[1].id);
+    const w = s.weapons.filter((x) => canPromote(s, x)).sort((a, b) => b.level - a.level)[0];
+    if (!w) return { ok: true, count };
+    promote(s, w.id);
     count += 1;
   }
 }

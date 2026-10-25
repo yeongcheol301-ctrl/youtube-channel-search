@@ -1,6 +1,6 @@
 // 단순 봇으로 플레이해 회차별 진행 속도를 출력한다. 사용: node tools/simulate.mjs [seed]
 import { weaponAttack, bossFight, mineralsPerSec, buildingDps } from '../src/rules.js';
-import { incomePerSec, combineAll, newGame, buy, enhance, pickTrait, assign, combine, canCombine, upgradeBuilding, buildingUpgradeCost, tick, ctxOf, fighters, buyPrice, enhancePrice } from '../src/state.js';
+import { incomePerSec, promoteAll, atCap, newGame, buy, enhance, pickTrait, assign, upgradeBuilding, buildingUpgradeCost, tick, ctxOf, fighters, buyPrice, enhancePrice } from '../src/state.js';
 import { challengeBoss, measureDps, rebirth, rebirthCoins, nextBoss, nextUnlock, unlock, buyPerm, PERMS, permCost, shouldHintRebirth } from '../src/progress.js';
 
 let seed = Number(process.argv[2] ?? 1);
@@ -31,7 +31,7 @@ function arrange() {
 function act() {
   const p = s.weapons.find((w) => w.pendingTraits);
   if (p) return pickTrait(s, p.id, p.pendingTraits[0]);
-  if (combineAll(s).count) return true;
+  if (promoteAll(s).count) return true;
   const cost = buildingUpgradeCost(s);
   if (s.minerals >= cost && cost < incomePerSec(s) * 120) return upgradeBuilding(s);
   const type = [...s.meta.unlocked].sort((a, b) => buyPrice(s, b) - buyPrice(s, a)).find((t) => s.minerals >= buyPrice(s, t) * 3);
@@ -39,7 +39,7 @@ function act() {
     const t = type ?? s.meta.unlocked.find((x) => s.minerals >= buyPrice(s, x));
     if (t) return buy(s, t);
   }
-  const target = s.weapons.filter((w) => w.level < 50 && !w.pendingTraits).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
+  const target = s.weapons.filter((w) => !atCap(w) && !w.pendingTraits).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
   if (target && s.minerals >= enhancePrice(s, target)) return enhance(s, target.id, rng);
   return null;
 }

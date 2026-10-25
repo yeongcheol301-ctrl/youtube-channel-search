@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { newGame, buy, enhance, sell, assign, combine, pickTrait, upgradeBuilding, tick, applyOffline, save, load } from '../src/state.js';
+import { newGame, buy, enhance, sell, assign, pickTrait, upgradeBuilding, tick, applyOffline, save, load } from '../src/state.js';
 
 const always = (v) => () => v;
 const memStore = () => { const m = new Map(); return { getItem: (k) => m.get(k) ?? null, setItem: (k, v) => m.set(k, String(v)) }; };
@@ -41,20 +41,10 @@ test('reaching +10 offers three traits and blocks enhancing until picked', () =>
 
 test('destroyed weapon disappears', () => {
   const s = newGame(); s.minerals = 1e12; buy(s, 'sword');
-  const w = s.weapons[0]; w.level = 35; w.traits = ['atkPct', 'atkPct', 'atkPct'];
+  const w = s.weapons[0]; w.grade = 2; w.level = 35; w.traits = ['atkPct', 'atkPct', 'atkPct'];
   const seq = [0.99, 0.0];
   assert.equal(enhance(s, w.id, () => seq.shift()).result, 'destroy');
   assert.equal(s.weapons.length, 0);
-});
-
-test('combine needs two +10 of same grade', () => {
-  const s = newGame(); s.minerals = 1e6; buy(s, 'sword'); buy(s, 'sword');
-  const [a, b] = s.weapons;
-  assert.equal(combine(s, a.id, b.id).ok, false);
-  a.level = 10; b.level = 12; a.traits = ['atkPct']; b.traits = ['atkPct'];
-  const r = combine(s, a.id, b.id);
-  assert.equal(r.ok, true); assert.equal(s.weapons.length, 1);
-  assert.equal(s.weapons[0].grade, 1); assert.equal(s.weapons[0].level, 0);
 });
 
 test('sell refunds minerals', () => {
@@ -127,23 +117,45 @@ test('tap bonus grows with mining income but stays below one second of it plus b
   assert.ok(tapGain(s) <= rate * 0.25 + 2);
 });
 
-test('combineAll merges every eligible pair and stops when none are left', async () => {
-  const { combineAll } = await import('../src/state.js');
-  const s = newGame(); s.minerals = 1e9;
-  for (let i = 0; i < 5; i++) buy(s, 'sword');
-  s.weapons.forEach((w, i) => { w.level = i < 4 ? 10 + i : 3; });
-  const r = combineAll(s);
-  assert.equal(r.count, 2);
-  assert.equal(s.weapons.filter((w) => w.grade === 1).length, 2);
-  assert.equal(s.weapons.filter((w) => w.grade === 0).length, 1);
-  assert.equal(combineAll(s).count, 0);
+
+test('enhancing stops at the grade cap until promotion', async () => {
+  const { GRADE_CAPS } = await import('../src/rules.js');
+  const s = newGame(); s.minerals = 1e12; buy(s, 'sword');
+  const w = s.weapons[0]; w.level = GRADE_CAPS[0]; w.traits = ['atkPct', 'atkPct'];
+  const r = enhance(s, w.id, () => 0);
+  assert.equal(r.ok, false); assert.match(r.reason, /승급/); assert.equal(w.level, GRADE_CAPS[0]);
 });
 
-test('combineAll pairs the same weapon type first', async () => {
-  const { combineAll } = await import('../src/state.js');
-  const s = newGame(); s.minerals = 1e9; s.meta.unlocked.push('axe');
-  buy(s, 'sword'); buy(s, 'axe'); buy(s, 'sword'); buy(s, 'axe');
-  s.weapons.forEach((w) => { w.level = 10; });
-  combineAll(s);
-  assert.deepEqual(s.weapons.map((w) => w.type).sort(), ['axe', 'sword']);
+test('promotion needs the cap, a same type same grade weapon and minerals', async () => {
+  const { promote, promoteCost } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e12; buy(s, 'sword'); buy(s, 'sword'); buy(s, 'sword');
+  const [a, b, c] = s.weapons; a.level = 20; a.traits = ['atkPct', 'atkPct']; b.level = 7; c.level = 3;
+  assert.equal(promote(s, b.id).ok, false);
+  const m = s.minerals;
+  const r = promote(s, a.id);
+  assert.equal(r.ok, true); assert.equal(a.grade, 1); assert.equal(a.level, 20);
+  assert.equal(s.weapons.length, 2); assert.ok(!s.weapons.includes(c), 'lowest level weapon is used up');
+  assert.equal(s.minerals, m - promoteCost(0));
+  const lone = newGame(); lone.minerals = 1e12; buy(lone, 'sword'); lone.weapons[0].level = 20;
+  assert.equal(promote(lone, lone.weapons[0].id).ok, false);
+  const broke = newGame(); broke.minerals = 1e12; buy(broke, 'sword'); buy(broke, 'sword'); broke.weapons[0].level = 20; broke.minerals = 0;
+  assert.equal(promote(broke, broke.weapons[0].id).ok, false);
+});
+
+test('promoteAll promotes every eligible weapon', async () => {
+  const { promoteAll } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e12;
+  for (let i = 0; i < 4; i++) buy(s, 'sword');
+  s.weapons[0].level = 20; s.weapons[1].level = 20;
+  const r = promoteAll(s);
+  assert.equal(r.count, 2, 'both +20 swords promote, each eating a +0 sword');
+  assert.equal(s.weapons.filter((w) => w.grade === 1).length, 2);
+  assert.equal(s.weapons.length, 2);
+});
+
+test('each extra weapon of a type costs 12% more', async () => {
+  const { buyPrice } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e9;
+  const p0 = buyPrice(s, 'sword'); buy(s, 'sword');
+  assert.equal(buyPrice(s, 'sword'), Math.round(p0 * 1.12));
 });

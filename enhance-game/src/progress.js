@@ -1,6 +1,6 @@
 // 보스 도전, DPS 측정, 환생·해금·영구 능력, 자동화.
 import { WEAPONS, WEAPON_ORDER, makeBoss, bossFight, FIGHT_SECONDS, weaponAttack } from './rules.js';
-import { newGame, ctxOf, fighters, miners, assign, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
+import { canPromote, promote, atCap, newGame, ctxOf, fighters, miners, assign, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -102,7 +102,12 @@ export function autoStep(s, cfg, rng) {
     pickTrait(s, pending.id, recommendTrait(pending.type, pending.pendingTraits));
     return { ok: true, action: 'trait' };
   }
-  const low = s.weapons.filter((w) => w.level < cfg.target).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
+  const ready = s.weapons.find((w) => canPromote(s, w));
+  if (ready) {
+    promote(s, ready.id);
+    return { ok: true, action: 'promote' };
+  }
+  const low = s.weapons.filter((w) => w.level < cfg.target && !atCap(w)).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
   if (low) {
     if (s.minerals < enhancePrice(s, low)) return { ok: true, action: 'wait' };
     enhance(s, low.id, rng);
@@ -144,6 +149,7 @@ function canSpendCoins(s) {
 export function nextStep(s) {
   if (s.weapons.some((w) => w.pendingTraits)) return { key: 'trait', tab: 'forge', act: 'open-trait', text: '눌러서 특성 고르기' };
   if (canKillBoss(s)) return { key: 'boss', tab: 'boss', text: `${s.maxStage + 1}단계 보스를 잡을 수 있습니다` };
+  if (s.weapons.some((w) => canPromote(s, w))) return { key: 'promote', tab: 'forge', act: 'promote-all', text: '눌러서 승급하기 (재료 무기 한 자루 소모)' };
   if (!s.weapons.length) return { key: 'buy', tab: 'forge', text: '검을 사서 시작하세요' };
   if (canSpendCoins(s)) return { key: 'shop', tab: 'shop', text: '환생 코인으로 새 무기나 능력을 사세요' };
   return { key: 'enhance', tab: 'forge', text: '무기를 강화해 보스를 준비하세요 (자동 강화도 있습니다)' };
@@ -151,7 +157,7 @@ export function nextStep(s) {
 
 export function alerts(s) {
   return {
-    forge: s.weapons.some((w) => w.pendingTraits),
+    forge: s.weapons.some((w) => w.pendingTraits || canPromote(s, w)),
     boss: canKillBoss(s),
     shop: canSpendCoins(s),
   };
