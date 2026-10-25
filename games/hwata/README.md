@@ -6,7 +6,9 @@
 - `src/rules.js` 게임 규칙(화면 없음)
 - `src/world.js` 지도(240×50 블록), 날마다 생기는 약초·뿌리
 - `src/quests.js` 낮 퀘스트 3개(나무꾼, 우는 아이, 장비)
-- `src/sprites.js` 도트 그림
+- `src/sprites.js` 도트 그림·아이콘
+- `src/light.js` 테라리아식 빛(땅속 어둠)
+- `src/audio.js` 효과음(파일 없이 합성)
 - `src/game.js` 화면·조작·낮/밤 흐름
 - `tests/` 규칙·지도·퀘스트 테스트
 

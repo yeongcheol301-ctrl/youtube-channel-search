@@ -1,8 +1,9 @@
 // 게임 규칙: 화면 없이 계산만 한다. 행동은 {ok, reason?}를 돌려주고 실패하면 상태를 바꾸지 않는다.
 import {
   MATERIALS, RECIPES, PATIENTS, UPGRADES, START_MONEY, START_ARROWS, MAX_STAMINA,
-  DOSES_PER_BREW, MAX_MED_LEVEL, MED_UPGRADE_MAIN, CLOVER_HQ_COUNT, ARROW_PACK, ARROW_CRAFT,
+  DOSES_PER_BREW, MAX_MED_LEVEL, MED_UPGRADE_MAIN, CLOVER_HQ_COUNT, ARROW_PACK, ARROW_CRAFT, PAGES,
 } from './data.js';
+import { T } from './world.js';
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -20,7 +21,9 @@ export function newState() {
     upgrades: {},
     flags: {},
     luck: 0,
-    log: [],
+    dex: {},
+    pages: [],
+    pots: [],
   };
 }
 
@@ -32,6 +35,7 @@ export function count(s, id) {
   return s.inv[id]?.n ?? 0;
 }
 
+// 처음 얻은 재료면 true 를 돌려준다(도감에 오른다).
 export function addItem(s, id, hq = false) {
   if (id === 'clover') s.luck += CLOVER_HQ_COUNT;
   else if (s.luck > 0 && MATERIALS[id].weight > 0) {
@@ -41,6 +45,10 @@ export function addItem(s, id, hq = false) {
   const slot = (s.inv[id] ??= { n: 0, hq: 0 });
   slot.n += 1;
   if (hq) slot.hq += 1;
+  s.dex ??= {};
+  if (s.dex[id]) return false;
+  s.dex[id] = true;
+  return true;
 }
 
 // 상급부터 꺼낸다. 꺼낸 것 중 상급 개수를 돌려준다.
@@ -82,6 +90,42 @@ export function collapseLoss(s) {
     delete s.inv[id];
   }
   return lost;
+}
+
+export const hasPage = (s, n) => (s.pages ?? []).includes(n);
+
+export function maxStamina(s) {
+  return MAX_STAMINA + (hasPage(s, 3) ? 30 : 0);
+}
+
+export function herbZone(s) {
+  return hasPage(s, 1) ? [0.56, 0.9] : [0.62, 0.84];
+}
+
+// 항아리 안의 것을 준다. loot: {money} | {arrows} | {item, n} | {page}
+export function openPot(s, loot) {
+  if (loot.money) {
+    s.money += loot.money;
+    return { ok: true, text: `엽전 ${loot.money}냥` };
+  }
+  if (loot.arrows) {
+    s.arrows += loot.arrows;
+    return { ok: true, text: `화살 ${loot.arrows}발` };
+  }
+  if (loot.item) {
+    for (let i = 0; i < loot.n; i++) addItem(s, loot.item);
+    return { ok: true, text: `${MATERIALS[loot.item].name} ${loot.n}개` };
+  }
+  s.pages ??= [];
+  if (hasPage(s, loot.page)) return { ok: false, text: '빈 항아리' };
+  s.pages.push(loot.page);
+  return { ok: true, page: loot.page, text: `${PAGES[loot.page].name}! ${PAGES[loot.page].perk}` };
+}
+
+const HARDNESS = { [T.GRASS]: 0.35, [T.DIRT]: 0.45, [T.POT]: 0.3, [T.LADDER]: 0.15, [T.PLANK]: 0.15 };
+
+export function digHardness(s, t) {
+  return (HARDNESS[t] ?? 0.45) * (s.upgrades.hoe ? 0.5 : 1);
 }
 
 export function spendStamina(s, n) {
@@ -147,8 +191,9 @@ export function upgradeMed(s, id) {
 }
 
 // 약 달이기 바늘 위치(0~1) → 별 1~3
-export function brewGrade(pos) {
-  if (pos >= 0.42 && pos <= 0.58) return 3;
+export function brewGrade(pos, wide = false) {
+  const g = wide ? 0.12 : 0.08;
+  if (pos >= 0.5 - g && pos <= 0.5 + g) return 3;
   if (pos >= 0.28 && pos <= 0.72) return 2;
   return 1;
 }

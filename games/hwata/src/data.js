@@ -24,6 +24,7 @@ export const MATERIALS = {
   whiteFur: { name: '흰 토끼 털', weight: 1, rare: true },
   clover: { name: '네잎클로버', weight: 0, rare: true },
   wood: { name: '나무', weight: 0 },
+  dirt: { name: '흙덩이', weight: 0 },
 };
 
 // unlock: 'start' | 'quest1' | {day}
@@ -73,8 +74,8 @@ export const UPGRADES = {
 
 export const ARROW_PACK = { count: 10, money: 20 };
 export const ARROW_CRAFT = { count: 5, items: { feather: 1, wood: 1 } };
-export const LADDER_WOOD = 2;
-export const BRIDGE_WOOD = 3;
+export const LADDER_WOOD = 1;
+export const BRIDGE_WOOD = 1;
 
 // 하루에 땅 위·땅속에 새로 생기는 재료 개수.
 export const DAILY_SPAWNS = {
@@ -85,3 +86,23 @@ export const ANIMALS_PER_DAY = { rabbit: 3, pheasant: 3 };
 export const WHITE_RABBIT_CHANCE = 0.2;
 export const CLOVER_CHANCE = 0.1;
 export const CLOVER_HQ_COUNT = 5;
+
+// 청낭서: 화타의 의서. 조각을 찾으면 능력이 생긴다.
+export const PAGES = {
+  1: { name: '청낭서 1장 · 채약편', perk: '약초를 캘 때 초록칸이 넓어집니다' },
+  2: { name: '청낭서 2장 · 탕전편', perk: '약을 달일 때 초록칸이 넓어집니다' },
+  3: { name: '청낭서 3장 · 양생편', perk: '기력이 30 늘어납니다' },
+};
+
+// 땅속 항아리. 깨면 안의 것을 얻는다. 지도에 한 번만 있다(날마다 다시 생기지 않음).
+export const POTS = [
+  { x: 44, y: 34, loot: { money: 12 } },
+  { x: 74, y: 36, loot: { arrows: 6 } },
+  { x: 97, y: 37, loot: { page: 1 } },
+  { x: 112, y: 38, loot: { item: 'honey', n: 2 } },
+  { x: 150, y: 30, loot: { money: 20 } },
+  { x: 166, y: 35, loot: { page: 2 } },
+  { x: 188, y: 29, loot: { arrows: 8 } },
+  { x: 200, y: 38, loot: { money: 30 } },
+  { x: 218, y: 33, loot: { page: 3 } },
+];

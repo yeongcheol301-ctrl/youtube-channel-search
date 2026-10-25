@@ -93,14 +93,58 @@ button:disabled { opacity: 0.4; cursor: default; }
   padding: 8px 10px; font-size: 14px; min-width: 52px;
 }
 .toolrow button.on { background: var(--hanji); color: var(--ink); }
+.hotbar { display: flex; gap: 4px; background: var(--glass); border-radius: 12px; padding: 4px; }
+.slot {
+  position: relative; width: 54px; height: 54px; flex: none;
+  border: 2px solid transparent; border-radius: 9px; background: rgba(255,255,255,0.06);
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px;
+  font-size: 11px; padding: 0;
+}
+.slot img { width: 26px; height: 26px; image-rendering: pixelated; }
+.slot.on { border-color: var(--gold); background: rgba(227,181,74,0.25); }
+.slot .n { position: absolute; top: 1px; right: 4px; font-style: normal; font-size: 11px; color: var(--gold); font-variant-numeric: tabular-nums; }
+.chip img, .ico { width: 18px; height: 18px; image-rendering: pixelated; vertical-align: -3px; margin-right: 3px; }
+.ico.lg { width: 30px; height: 30px; margin-right: 6px; }
+.ico.dim { filter: brightness(0) opacity(0.35); }
+#muteBtn .off-t, #muteBtn.off .on-t { display: none; }
+#muteBtn.off .off-t { display: inline; }
+.tracker {
+  position: absolute; right: max(12px, env(safe-area-inset-right, 0px)); top: 82px;
+  width: min(300px, 46vw); background: var(--glass); border-radius: 8px; padding: 6px 10px;
+  pointer-events: auto; font-size: 12.5px;
+}
+.tracker button { background: none; border: 0; padding: 0; color: var(--gold); font-family: var(--display); font-size: 14px; }
+.tracker ul { list-style: none; margin: 4px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.tracker li { display: flex; gap: 6px; align-items: center; line-height: 1.3; }
+.tracker li img { width: 16px; height: 16px; image-rendering: pixelated; flex: none; }
+.tracker.closed ul { display: none; }
+#fade {
+  position: absolute; inset: 0; z-index: 60; background: #0d0f1a;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity 0.45s;
+}
+#fade.on { opacity: 1; }
+#fade p { font-family: var(--display); font-size: 34px; color: var(--gold); margin: 0; }
+.scene { width: 100%; height: clamp(150px, 24vw, 230px); border-radius: 10px; display: block; }
+.pages, .dex { list-style: none; margin: 0; padding: 0; }
+.pages { display: flex; flex-direction: column; gap: 6px; }
+.pages li { display: flex; align-items: center; gap: 8px; background: var(--night-2); border-radius: 8px; padding: 8px 10px; color: #b7ad98; }
+.pages li.got { color: var(--hanji); box-shadow: inset 0 0 0 1px rgba(227,181,74,0.5); }
+.pages li div { display: flex; flex-direction: column; min-width: 0; }
+.pages span { font-size: 12.5px; }
+.pages .ico { width: 28px; height: 28px; }
+.dex { display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); gap: 6px; }
+.dex li { display: flex; flex-direction: column; align-items: center; gap: 2px; background: var(--night-2); border-radius: 6px; padding: 6px 4px; font-size: 12px; color: #8e8572; text-align: center; }
+.dex li.got { color: var(--hanji); }
+.dex .ico { width: 28px; height: 28px; margin: 0; }
 #homeBtn { background: var(--jade); border: 0; border-radius: 8px; padding: 8px 14px; font-family: var(--display); font-size: 16px; }
 
 #toasts {
-  position: absolute; left: 50%; top: 92px; transform: translateX(-50%);
-  display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none;
-  width: min(90vw, 420px); z-index: 30;
+  position: absolute; left: max(12px, env(safe-area-inset-left, 0px)); top: 82px;
+  display: flex; flex-direction: column; align-items: flex-start; gap: 6px; pointer-events: none;
+  width: min(48vw, 380px); z-index: 30;
 }
-#night:not([hidden]) ~ #toasts { top: auto; bottom: max(16px, env(safe-area-inset-bottom, 0px)); }
+#night:not([hidden]) ~ #toasts { top: max(10px, env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); align-items: center; }
 .toast {
   background: rgba(28,33,53,0.9); color: var(--hanji); border-radius: 8px;
   padding: 7px 12px; font-size: 14px; text-align: center; transition: opacity 0.4s, transform 0.4s;
@@ -168,7 +212,8 @@ button:disabled { opacity: 0.4; cursor: default; }
 }
 .med.menu { border-color: var(--jade-2); box-shadow: inset 0 0 0 1px var(--jade-2); }
 .med.locked { opacity: 0.6; }
-.med header { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.med header { display: flex; align-items: center; gap: 4px; }
+.med header h3 { flex: 1; }
 .med h3 { margin: 0; font-family: var(--display); font-weight: 400; font-size: 21px; }
 .tag { font-size: 12px; padding: 2px 7px; border-radius: 10px; background: var(--hanji-2); color: var(--muted); white-space: nowrap; }
 .tag.lv { background: var(--seal); color: #fff4e2; }
@@ -203,22 +248,12 @@ button:disabled { opacity: 0.4; cursor: default; }
 .service { display: flex; flex-direction: column; gap: 14px; }
 .svtop { display: flex; align-items: center; gap: 12px; }
 .svtop span { white-space: nowrap; color: var(--gold); font-variant-numeric: tabular-nums; }
-.room {
-  background: linear-gradient(#3a2d22, #2b2119); border-radius: 10px; padding: 16px;
-  display: flex; flex-direction: column; gap: 14px; min-height: 220px;
-  border: 1px solid rgba(227,181,74,0.2);
-}
-.front { display: flex; gap: 14px; align-items: flex-end; min-height: 120px; }
+.front { display: flex; gap: 14px; align-items: flex-end; min-height: 74px; }
 .front .empty { margin: auto; color: #b7ad98; }
-.por { width: 84px; image-rendering: pixelated; flex: none; }
-.bubble { background: var(--hanji); color: var(--ink); border-radius: 12px 12px 12px 2px; padding: 12px 14px; min-width: 0; flex: 1; }
+.bubble { background: var(--hanji); color: var(--ink); border-radius: 2px 12px 12px 12px; padding: 12px 14px; min-width: 0; flex: 1; }
 .bubble b { font-family: var(--display); font-weight: 400; font-size: 18px; }
 .bubble p { margin: 4px 0 0; font-size: 16px; line-height: 1.5; }
 .bubble small { display: block; margin-top: 6px; color: var(--seal); font-size: 13px; }
-.line { list-style: none; margin: 0; padding: 0; display: flex; gap: 8px; }
-.line li { width: 46px; display: flex; flex-direction: column; gap: 3px; align-items: center; }
-.line canvas { width: 40px; image-rendering: pixelated; }
-.line i { display: block; height: 4px; background: #79c26a; border-radius: 2px; align-self: flex-start; }
 .brew { background: var(--hanji); color: var(--ink); border-radius: 10px; padding: 14px; display: flex; flex-direction: column; gap: 10px; align-items: center; }
 .brew p { margin: 0; text-align: center; }
 .gauge { position: relative; display: flex; width: 100%; height: 26px; border-radius: 6px; overflow: hidden; }
@@ -243,13 +278,19 @@ button:disabled { opacity: 0.4; cursor: default; }
 .summary hr { border: 0; border-top: 1px solid var(--line); width: 100%; margin: 4px 0; }
 .summary .eyebrow { color: var(--seal); }
 
+@media (max-width: 760px) {
+  .slot { width: 46px; height: 48px; font-size: 10px; }
+  .slot img { width: 22px; height: 22px; }
+  .tracker { top: 76px; font-size: 11.5px; }
+}
 @media (max-width: 600px) {
   .controls { flex-wrap: wrap; row-gap: 8px; }
   .tools { order: -1; width: 100%; }
+  .tracker { top: 108px; width: min(260px, 70vw); }
+  #toasts { top: 200px; width: calc(100% - 24px); }
   .pad button { width: 52px; height: 52px; }
   .toolrow button { padding: 7px 7px; min-width: 44px; font-size: 13px; }
   .hud .chip { font-size: 12px; padding: 3px 6px; }
-  #toasts { top: 112px; }
 }
 @media (max-height: 480px) {
   .sheet { max-height: 96%; padding: 12px 14px 10px; }
@@ -270,14 +311,17 @@ button:disabled { opacity: 0.4; cursor: default; }
         <span class="chip" id="hudZone">한의원 앞마당</span>
         <div class="chip meter" title="남은 낮 시간"><span>해</span><div class="bar"><i id="sunFill"></i></div></div>
         <div class="chip meter" title="기력"><span>기력</span><div class="bar"><i id="staminaFill"></i></div><b id="hudStamina">100</b></div>
+        <button class="chip chipbtn" id="muteBtn" aria-label="소리 켜고 끄기"><span class="on-t">소리</span><span class="off-t">소리 끔</span></button>
       </div>
       <div class="hudrow">
-        <button class="chip chipbtn" id="bagBtn">바구니 <b id="hudWeight">0/20</b></button>
-        <span class="chip">화살 <b id="hudArrows">20</b></span>
-        <span class="chip">나무 <b id="hudWood">0</b></span>
-        <span class="chip">엽전 <b id="hudMoney">50</b></span>
+        <button class="chip chipbtn" id="bagBtn"><img data-icon="bag" alt="">바구니 <b id="hudWeight">0/20</b></button>
+        <span class="chip"><img data-icon="coin" alt=""><b id="hudMoney">50</b>냥</span>
         <canvas id="minimap" width="360" height="14" aria-label="지도"></canvas>
       </div>
+      <aside class="tracker" id="tracker">
+        <button class="chipbtn" id="trackerToggle">오늘의 할 일</button>
+        <ul id="trackerList"></ul>
+      </aside>
     </div>
     <div class="controls">
       <div class="pad">
@@ -290,11 +334,13 @@ button:disabled { opacity: 0.4; cursor: default; }
           <button data-arrow="normal" class="on">보통 화살</button>
           <button data-arrow="net">그물 화살</button>
         </div>
-        <div class="toolrow">
-          <button data-mode="hand" class="on">손</button>
-          <button data-mode="bow">활</button>
-          <button data-mode="ladder">사다리</button>
-          <button data-mode="plank">다리</button>
+        <div class="hotbar" role="toolbar" aria-label="도구">
+          <button class="slot on" data-mode="hand"><img alt=""><span>손</span></button>
+          <button class="slot" data-mode="hoe"><img alt=""><span>괭이</span></button>
+          <button class="slot" data-mode="bow"><img alt=""><span>활</span><i class="n" id="slotCount-bow">20</i></button>
+          <button class="slot" data-mode="ladder"><img alt=""><span>사다리</span><i class="n" id="slotCount-ladder">0</i></button>
+          <button class="slot" data-mode="plank"><img alt=""><span>발판</span><i class="n" id="slotCount-plank">0</i></button>
+          <button class="slot" data-mode="dirt"><img alt=""><span>흙</span><i class="n" id="slotCount-dirt">0</i></button>
         </div>
       </div>
       <div class="pad">
@@ -315,6 +361,8 @@ button:disabled { opacity: 0.4; cursor: default; }
       <div id="panelChoices"></div>
     </div>
   </div>
+
+  <div id="fade" hidden><p id="fadeText"></p></div>
 </div>
 
 <script type="module" src="src/game.js"></script>

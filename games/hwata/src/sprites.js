@@ -91,6 +91,41 @@ const ART = {
     pal: { t: '#6b4a2b', T: '#a77c4c', k: '#3a2b1d' },
   },
   bee: { rows: ['.w.', 'yky', '.y.'], pal: { w: '#e8eef2', y: '#e8b83c', k: '#1b1410' } },
+  // 단축 슬롯·재료 아이콘
+  hand: {
+    rows: ['..s.s...', '.sSsSs..', '.ssssss.', '.sssssss', '.ssssss.', '..ssss..', '..ssss..', '..bbbb..'],
+    pal: { s: '#e9c29b', S: '#d4a982', b: '#3f5f86' },
+  },
+  hoe: {
+    rows: ['....iii.', '...iIIi.', '....tIi.', '...t..i.', '..t.....', '.t......', 't.......', '........'],
+    pal: { i: '#9aa3ad', I: '#d7dde2', t: '#8b5e34' },
+  },
+  bowIcon: {
+    rows: ['.tt.....', 't..ts...', 't...s...', 't...sA..', 't...s...', 't..ts...', '.tt.....', '........'],
+    pal: { t: '#8b5e34', s: '#e9e1cc', A: '#c9c1ad' },
+  },
+  ladderIcon: {
+    rows: ['.t....t.', '.tTTTTt.', '.t....t.', '.tTTTTt.', '.t....t.', '.tTTTTt.', '.t....t.', '.t....t.'],
+    pal: { t: '#8b5e34', T: '#b07a46' },
+  },
+  plankIcon: { rows: ['........', '........', 'TTTTTTTT', 'tttttttt', '.t....t.', '.t....t.', '........', '........'], pal: { t: '#7a522a', T: '#b07a46' } },
+  dirt: {
+    rows: ['gggggggg', 'dGddgdGd', 'dddDdddd', 'dDdddDdd', 'ddddddDd', 'dDdddddd', 'ddddDddd', 'dddddddd'],
+    pal: { g: '#7dbb59', G: '#5f9a45', d: '#7a5534', D: '#5c3e24' },
+  },
+  wood: { rows: ['........', '.tttttt.', 'trrttttT', 'trRrtttT', 'trrttttT', '.tttttt.', '........', '........'], pal: { t: '#7a522a', T: '#5c3d1f', r: '#c9a26c', R: '#a77c4c' } },
+  rabbitFur: { rows: ['..ff....', '.ffff.f.', 'ffLffff.', 'fffffLf.', '.ffffff.', '..ff.ff.'], pal: { f: '#a07a52', L: '#d9bf98' } },
+  whiteFur: { rows: ['..ff....', '.ffff.f.', 'ffLffff.', 'fffffLf.', '.ffffff.', '..ff.ff.'], pal: { f: '#f3f1ea', L: '#d8d4ca' } },
+  feather: { rows: ['......g.', '.....gr.', '....grr.', '...grr..', '..grr...', '.gbb....', '.b......', 'b.......'], pal: { g: '#2f6b4f', r: '#b8432f', b: '#8a5a2e' } },
+  pheasantFat: { rows: ['..kk..', '.yyyy.', 'yYyyyy', 'yyyyYy', 'yyyyyy', '.yyyy.'], pal: { k: '#6b4a2b', y: '#efd892', Y: '#fff3c8' } },
+  pot: {
+    rows: ['..kkkkk..', '.kbbbbbk.', '..bBbbb..', '.bbbbbbb.', 'bbBbbbbbb', 'bbbbbbBbb', 'bbbbbbbbb', '.bbbBbbb.', '..bbbbb..'],
+    pal: { k: '#4a2f1c', b: '#8a5530', B: '#a86b3e' },
+  },
+  page: { rows: ['.pppppp.', 'pPPPPPPp', 'pPkkkkPp', 'pPPPPPPp', 'pPkkkPPp', 'pPPPPPPp', 'pPkkkkPp', '.pppppp.'], pal: { p: '#b8432f', P: '#f1e8d4', k: '#5a4632' } },
+  coin: { rows: ['..yyy..', '.yYYYy.', 'yYykyYy', 'yYkkkYy', 'yYykyYy', '.yYYYy.', '..yyy..'], pal: { y: '#b8861f', Y: '#e3b54a', k: '#2a2118' } },
+  arrowIcon: { rows: ['......ii', '.....ti.', '....t...', '...t....', '..t.....', 'ff......', 'f.......', '........'], pal: { t: '#c9a26c', i: '#9aa3ad', f: '#e9e1cc' } },
+  bag: { rows: ['..kkkk..', '.k....k.', '.bbbbbb.', 'bbBbbbbb', 'bbbbbbBb', 'bbbbbbbb', 'bBbbbbbb', '.bbbbbb.'], pal: { k: '#6b4a2b', b: '#c9a26c', B: '#a77c4c' } },
 };
 
 for (const [key, p] of Object.entries(PEOPLE)) {
@@ -100,6 +135,9 @@ for (const [key, p] of Object.entries(PEOPLE)) {
 }
 ART.whiteRabbit = { rows: ART.rabbit.rows, pal: { f: '#f3f1ea', l: '#d8d4ca', e: '#c0453a' } };
 ART.whiteRabbit2 = { rows: ART.rabbit2.rows, pal: ART.whiteRabbit.pal };
+// 재료 아이콘은 바닥 그림을 그대로 쓴다.
+ART.bellflower = ART.bellflowerRoot;
+ART.kudzu = ART.kudzuRoot;
 
 const cache = new Map();
 
@@ -139,3 +177,11 @@ export function drawSprite(ctx, key, x, y, px, flip = false) {
 }
 
 export const hasSprite = (key) => key in ART;
+
+const urls = new Map();
+
+// <img> 로 쓸 아이콘 주소
+export function iconURL(key) {
+  if (!urls.has(key)) urls.set(key, sprite(key).toDataURL());
+  return urls.get(key);
+}

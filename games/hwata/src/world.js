@@ -1,9 +1,9 @@
 // 마을 뒷들 지도: 가로 240칸 × 세로 50칸 블록. y는 위에서 아래로 커진다.
-import { DAILY_SPAWNS, CLOVER_CHANCE } from './data.js';
+import { DAILY_SPAWNS, CLOVER_CHANCE, POTS } from './data.js';
 
 export const W = 240;
 export const H = 50;
-export const T = { AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WATER: 4, LADDER: 5, PLANK: 6, LOG: 7, ROOT: 8 };
+export const T = { AIR: 0, GRASS: 1, DIRT: 2, STONE: 3, WATER: 4, LADDER: 5, PLANK: 6, LOG: 7, ROOT: 8, POT: 9 };
 
 export const ZONES = {
   clinic: [0, 15],
@@ -57,6 +57,7 @@ export function makeWorld() {
   const [l0, l1] = ZONES.log;
   for (let x = l0; x <= l1; x++) for (let y = 22; y <= 26; y++) setTile(w, x, y, T.LOG);
   for (let x = l1 + 1; x < W; x++) for (let y = 8; y <= 26; y++) setTile(w, x, y, T.STONE);
+  for (const p of POTS) setTile(w, p.x, p.y, T.POT);
   return w;
 }
 
@@ -70,7 +71,8 @@ export function setTile(w, x, y, t) {
   if (inside(x, y)) w.tiles[y * W + x] = t;
 }
 
-const SOLID = new Set([T.GRASS, T.DIRT, T.STONE, T.PLANK, T.LOG, T.ROOT]);
+// 발판(PLANK)은 위에서만 밟히는 판이라 벽으로 치지 않는다.
+const SOLID = new Set([T.GRASS, T.DIRT, T.STONE, T.LOG, T.ROOT, T.POT]);
 
 export function isSolid(w, x, y) {
   return SOLID.has(tile(w, x, y));
@@ -78,7 +80,20 @@ export function isSolid(w, x, y) {
 
 export function canDig(w, x, y) {
   const t = tile(w, x, y);
-  return t === T.GRASS || t === T.DIRT || t === T.LADDER || t === T.PLANK;
+  return t === T.GRASS || t === T.DIRT || t === T.LADDER || t === T.PLANK || t === T.POT;
+}
+
+const SUPPORT = new Set([...SOLID, T.LADDER, T.PLANK]);
+
+// 사다리·발판·흙을 놓을 수 있는가. 옆이나 위아래에 기댈 것이 있어야 하고, 발판과 흙은 몸과 겹치면 안 된다.
+export function canPlace(w, x, y, kind, body) {
+  if (!inside(x, y)) return false;
+  const t = tile(w, x, y);
+  if (t !== T.AIR && t !== T.WATER) return false;
+  const leans = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => SUPPORT.has(tile(w, x + dx, y + dy)));
+  if (!leans) return false;
+  if (kind === T.LADDER) return true;
+  return !(body && body.x < x + 1 && body.x + body.w > x && body.y < y + 1 && body.y + body.h > y);
 }
 
 export function surfaceY(w, x) {
