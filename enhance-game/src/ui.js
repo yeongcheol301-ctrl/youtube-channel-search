@@ -1,12 +1,12 @@
 // 화면: 상태를 읽어 그리고, 버튼은 data-act로 처리한다.
 import {
-  AWAKEN_SKILLS, AWAKEN_MULT, WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS, GRADE_CAPS, TRAIT_LEVELS, GRADE_MULT,
+  BIG_EVERY, isBigStage, AWAKEN_SKILLS, AWAKEN_MULT, WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS, GRADE_CAPS, TRAIT_LEVELS, GRADE_MULT,
   mineHit, successRate, destroyChance, formatNumber, weaponAttack, weaponHitsPerSec, partyArmorBreak, bossFight, buildingStats, buildingDps,
 } from './rules.js';
 import {
   load, save, buy, enhance, sell, assign, pickTrait, upgradeBuilding, promote, promoteAll, canPromote, promoteCost, promoteMaterial, atCap,
   buildingUpgradeCost, tick, applyOffline, incomePerSec, ctxOf, fighters, miners, buyPrice,
-  enhancePrice, sellValue, permLevel, tapMine, tapGain, craftProtect, fillPity, SHARD_COST, PITY_FILL, selectVein, bestVein, veinIncome, canAwaken, awaken, awakenCost, AWAKEN_GRADE, collection, COLLECT_PCT, SET_PCT,
+  enhancePrice, sellValue, permLevel, tapMine, tapGain, craftProtect, fillPity, SHARD_COST, PITY_FILL, selectVein, bestVein, veinIncome, canAwaken, awaken, awakenCost, AWAKEN_GRADE, collection, COLLECT_PCT, SET_PCT, buyUpgrade, upgradePrice, dpsSources, hearts, UPG_PCT, HEART_PCT, ORB_PCT,
 } from './state.js';
 import { dayKey, canAttend, attend, attendSlot, track, missionRows, claimMission, dailyAlert, ATTEND_REWARDS } from './daily.js';
 import {
@@ -164,15 +164,14 @@ function renderHeader() {
   const step = nextStep(s);
   const html = `
     <div class="hud-main">
-      <span class="mineral" id="min-num"></span><span class="unit">미네랄</span>
+      <div class="dps-hero"><span class="pw-label">DPS</span><b id="power">${fmt(battleDps(s))}</b><small>최고 ${fmt(Math.max(s.bestDps, battleDps(s)))}</small></div>
       <button type="button" class="speed s${ui.speed}" data-act="speed" aria-label="게임 속도 ${ui.speed}배, 눌러서 바꾸기">▶ ${ui.speed}배속</button>
     </div>
     ${powerRow()}
     <div class="hud-sub">
-      <span>초당 <b>+${fmt(incomePerSec(s))}</b></span>
-      <span>보스 <b>${s.maxStage}</b>단계</span>
+      <span class="min-line"><b class="mineral" id="min-num"></b> 미네랄 <small>+${fmt(incomePerSec(s))}/초</small></span>
       <span>코인 <b>${fmt(s.meta.coins)}</b></span>
-      <span>수집 <b>+${Math.round(collection(s.meta).bonus * 100)}%</b></span>
+      <span>심장 <b>${hearts(s.meta)}</b></span>
     </div>
     ${hint ? `<button type="button" class="hint" data-act="tab" data-tab="boss">10분째 DPS가 그대로예요. 환생하면 코인 ${fmt(rebirthCoins(s))}개 →</button>`
       : `<button type="button" class="guide g-${step.key}" data-act="${step.act ?? 'tab'}" data-tab="${step.tab}"><span>다음</span>${step.text}</button>`}`;
@@ -181,15 +180,14 @@ function renderHeader() {
 
 // ---- 성장 체감: 전투력 숫자, 다음 보스까지 진행 막대, 전투력 돌파 축하 ----
 function powerRow() {
-  const power = battleDps(s);
   const boss = nextBoss(s);
   const party = fighters(s);
   const r = party.length ? bossFight(party, boss, ctxOf(s)) : { damage: 0, killed: false };
   const p = r.killed ? 100 : Math.min(99, Math.floor((r.damage / boss.hp) * 100));
+  const name = `${boss.stage}단계 ${boss.big ? '빅보스' : '보스'}`;
   return `<div class="power-row">
-      <span class="pw-label">전투력</span><b id="power">${fmt(power)}</b>
-      <button type="button" class="goal ${r.killed ? 'ready' : ''}" data-act="tab" data-tab="boss" aria-label="${boss.stage}단계 보스까지 ${p}%">
-        <i style="width:${p}%"></i><em>${r.killed ? `${boss.stage}단계 보스 잡을 수 있음!` : `${boss.stage}단계 보스까지 ${p}%`}</em>
+      <button type="button" class="goal ${r.killed ? 'ready' : ''} ${boss.big ? 'big' : ''}" data-act="tab" data-tab="boss" aria-label="${name}까지 ${p}%">
+        <i style="width:${p}%"></i><em>${r.killed ? `${name} 잡을 수 있음!` : `${name}까지 DPS ${p}%`}</em>
       </button>
     </div>`;
 }
@@ -213,7 +211,7 @@ function afterPower() {
   if (ms > (s.powerMilestone ?? 0)) {
     const first = s.powerMilestone === undefined;
     s.powerMilestone = ms;
-    if (!first && !ui.banner) showMilestone(`전투력 ${fmt(ms)} 돌파!`);
+    if (!first && !ui.banner) showMilestone(`DPS ${fmt(ms)} 돌파!`);
   }
 }
 
@@ -324,6 +322,7 @@ function renderForge() {
       ${btn('sell', `판매 +${fmt(sellValue(w))}`)}
       ${btn('brag', '자랑하기')}
     </div>
+    ${upgradeCard()}
     ${awakenBox(w)}
     ${shardBar(w, breakP)}`;
   }
@@ -427,6 +426,38 @@ function renderMine() {
     <p class="note">앱을 꺼도 지금 광맥에서 최대 8시간치가 쌓입니다.</p>`;
 }
 
+// ---- DPS 올릴 거리: 보스에서 막혔을 때 무엇으로 더 올릴 수 있는지 ----
+function upgradeCard() {
+  const price = upgradePrice(s);
+  return `<div class="upg-card">
+    <div><b>공격력 업그레이드 <span class="lv">Lv.${s.upg ?? 0}</span></b><small>모든 무기 공격력 ×${(1 + UPG_PCT).toFixed(2)}씩 · 지금 ×${dpsSources(s).upg.toFixed(2)} · 환생하면 초기화</small></div>
+    ${btn('upg', `+1 · ${fmt(price)}`, { cls: 'gold', disabled: s.minerals < price || !s.weapons.length })}
+  </div>`;
+}
+
+function dpsPlan(boss) {
+  const src = dpsSources(s);
+  const col = collection(s.meta);
+  const need = boss.hp / FIGHT_SECONDS;
+  const have = battleDps(s);
+  const ratio = have > 0 ? need / have : Infinity;
+  const aw = s.weapons.find((w) => canAwaken(s, w));
+  const cheapest = s.weapons.filter((w) => !atCap(w) && !w.pendingTraits).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
+  const rows = [
+    ['공격력 업그레이드', `Lv.${s.upg ?? 0} · ×${src.upg.toFixed(2)}`, `다음 +${Math.round(UPG_PCT * 100)}% · ${fmt(upgradePrice(s))} 미네랄`, s.minerals >= upgradePrice(s)],
+    ['DPS 구슬', `${s.orbs ?? 0}개 · ×${src.orbs.toFixed(2)}`, `보스를 잡을 때마다 +${Math.round(ORB_PCT * 100)}%`, false],
+    ['보스의 심장', `${hearts(s.meta)}개 · ×${src.hearts.toFixed(2)}`, `${BIG_EVERY}단계마다 빅보스 첫 처치 +${Math.round(HEART_PCT * 100)}% (영구)`, false],
+    ['도감 수집', `${col.count}/${col.total} · ×${src.collection.toFixed(2)}`, `미등록 ${col.total - col.count}칸 · 한 칸 +${Math.round(COLLECT_PCT * 100)}%`, false],
+    ['각성', s.weapons.some((w) => w.awakened) ? '각성 무기 있음' : '없음', aw ? '지금 각성 가능!' : `${GRADES[AWAKEN_GRADE]} 무기부터`, !!aw],
+    ['강화', cheapest ? `가장 싼 강화 ${fmt(enhancePrice(s, cheapest))}` : '모두 한계', cheapest ? `${gradeLv(cheapest)} ${WEAPONS[cheapest.type].name}` : '승급하세요', !!cheapest && s.minerals >= enhancePrice(s, cheapest)],
+  ];
+  return `<section class="dps-plan">
+    <h3 class="sec">DPS 올릴 거리 <small>필요 ${fmt(need)} · 지금 ${fmt(have)}${Number.isFinite(ratio) ? ` · ${ratio.toFixed(1)}배 더` : ''}</small></h3>
+    <ul>${rows.map(([k, v, hint, go]) => `<li class="${go ? 'go' : ''}"><b>${k}</b><span>${v}</span><small>${hint}</small></li>`).join('')}</ul>
+    ${upgradeCard()}
+  </section>`;
+}
+
 // ---- 보스 ----
 function readiness(boss) {
   const party = fighters(s);
@@ -450,13 +481,13 @@ function renderBoss() {
   const fight = ui.fight;
   return `
     ${fight ? `<section class="arena busy fight"><div class="arena-ring">${strikersHtml(fighters(s).sort((a, b) => b.level - a.level), 2)}<div class="boss-center">${bossArt(boss.types, 140)}</div></div></section>` : ''}
-    <section class="boss">
+    <section class="boss ${boss.big ? 'big' : ''}">
       <div class="boss-art ${fight ? 'hit' : ''}">${bossArt(boss.types, 120)}</div>
       <div>
-        <p class="grade-tag">${boss.stage}단계 보스</p>
+        <p class="grade-tag">${boss.big ? '<span class="big-tag">빅보스</span> ' : ''}${boss.stage}단계 보스</p>
         <h2>${boss.types.map((t) => BOSS_TYPES[t].name).join(' + ')}</h2>
         <ul class="hints">${boss.types.map((t) => `<li>${BOSS_TYPES[t].hint}</li>`).join('')}</ul>
-        <p class="note">처치 보상 ${fmt(bossReward(boss.stage))} 미네랄</p>
+        <p class="note">처치 보상: DPS 구슬 1개(+${Math.round(ORB_PCT * 100)}%) · ${fmt(bossReward(boss.stage))} 미네랄${boss.big && boss.stage > (s.meta.bestStage ?? 0) ? ` · <b class="heart">보스의 심장</b>(영구 DPS +${Math.round(HEART_PCT * 100)}%)` : ''}</p>
       </div>
     </section>
     ${fight ? `<div class="fightbar"><span style="width:${fight.hpPct}%"></span><em>${fight.text}</em></div>` : ''}
@@ -471,6 +502,7 @@ function renderBoss() {
     <div class="row">
       ${btn('dps', 'DPS 측정 (샌드백 30초)', { disabled: !party.length })}
     </div>
+    ${killed ? '' : dpsPlan(boss)}
     <section class="rebirth">
       <h3 class="sec">환생</h3>
       <p>무기와 미네랄을 초기화하고 <b>환생 코인 ${fmt(coins)}개</b>를 받습니다. 코인으로 새 무기와 영구 능력을 삽니다. 지금 ${s.meta.rebirths + 1}회차입니다.</p>
@@ -808,7 +840,8 @@ function startFight() {
       clang(r.killed ? 'up' : 'destroy');
       if (r.killed) { gainText(bossReward(boss.stage)); sparks('big', '#f1d488'); buzz([40, 40, 80]); }
       if (r.killed && boss.stage % 5 === 0) setTimeout(() => offerBrag(bestWeapon(), `${boss.stage}단계 보스 처치!`), 1500);
-      toast(r.killed ? `${boss.stage}단계 보스 처치! +${fmt(bossReward(boss.stage))} 미네랄` : `실패… 30초 동안 ${fmt(r.damage)} 피해 (체력 ${fmt(boss.hp)})`);
+      toast(r.killed ? `${boss.stage}단계 ${boss.big ? '빅보스' : '보스'} 처치! DPS 구슬 +1 · +${fmt(bossReward(boss.stage))} 미네랄` : `실패… 필요 DPS ${fmt(boss.hp / FIGHT_SECONDS)}, 지금 ${fmt(r.damage / FIGHT_SECONDS)}. 아래 'DPS 올릴 거리'를 보세요`);
+      if (r.heart) setTimeout(() => showMilestone(`보스의 심장 획득!<br><small>영구 DPS +${Math.round(HEART_PCT * 100)}%</small>`), 400);
       persist();
     }
     render();
@@ -953,6 +986,12 @@ const handlers = {
   perm: (d) => { const r = buyPerm(s, d.key); toast(r.ok ? `${PERMS[d.key].name} 강화` : r.reason); },
   'ad-minerals': () => { const g = Math.max(200, incomePerSec(s) * 300); s.minerals += g; gainText(g); track(s.meta, 'ad', today()); toast(`(광고 시청 완료) +${fmt(g)} 미네랄`); },
   cash: (d) => toast(`「${d.name}」은 출시 후 판매합니다`),
+  upg: () => {
+    const r = buyUpgrade(s);
+    if (!r.ok) return toast(r.reason);
+    clang('up'); buzz(15);
+    floatText(`공업 Lv.${r.level}`, 'good', document.getElementById('power'));
+  },
   awaken: () => {
     const w = selectedWeapon();
     const r = w && awaken(s, w.id);

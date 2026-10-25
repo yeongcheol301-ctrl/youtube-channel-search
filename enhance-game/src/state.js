@@ -1,6 +1,6 @@
 // 게임 상태와 행동. 행동은 모두 {ok, reason?, ...}를 돌려주고, 실패하면 상태를 바꾸지 않는다.
 import {
-  WEAPON_ORDER, WEAPONS, TRAIT_LEVELS, MAX_LEVEL, GRADES, GRADE_MULT, GRADE_CAPS, rollEnhance, enhanceCost,
+  BIG_EVERY, WEAPON_ORDER, WEAPONS, TRAIT_LEVELS, MAX_LEVEL, GRADES, GRADE_MULT, GRADE_CAPS, rollEnhance, enhanceCost,
   buildingStats, mineralsPerSec, buildingDps,
 } from './rules.js';
 
@@ -27,12 +27,45 @@ export function collection(meta) {
   return { count: pairs.size, total: WEAPON_ORDER.length * GRADES.length, sets, bonus: pairs.size * COLLECT_PCT + sets.length * SET_PCT };
 }
 
-export function ctxOf(s) {
+// DPS 먹을거리. 모두 곱해서 모든 무기 공격력에 들어간다.
+export const UPG_PCT = 0.05;     // 공격력 업그레이드 1단계당 ×1.05 (회차마다 초기화)
+export const HEART_PCT = 0.1;    // 보스의 심장 1개당 +10% (빅보스 첫 처치, 영구)
+export const ORB_PCT = 0.03;     // DPS 구슬 1개당 +3% (보스 처치, 회차마다 초기화)
+
+export const hearts = (meta) => Math.floor((meta.bestStage ?? 0) / BIG_EVERY);
+
+export function dpsSources(s) {
+  const col = collection(s.meta);
   return {
-    bowCount: s.weapons.filter((w) => w.type === 'bow').length,
-    perm: { atkPct: 1.25 ** permLevel(s, 'atk') * (1 + collection(s.meta).bonus) - 1, rewardPct: 1.25 ** permLevel(s, 'reward') - 1 },
+    perm: 1.25 ** permLevel(s, 'atk'),
+    collection: 1 + col.bonus,
+    upg: (1 + UPG_PCT) ** (s.upg ?? 0),
+    hearts: 1 + HEART_PCT * hearts(s.meta),
+    orbs: 1 + ORB_PCT * (s.orbs ?? 0),
   };
 }
+
+export function ctxOf(s) {
+  const m = Object.values(dpsSources(s)).reduce((a, b) => a * b, 1);
+  return {
+    bowCount: s.weapons.filter((w) => w.type === 'bow').length,
+    perm: { atkPct: m - 1, rewardPct: 1.25 ** permLevel(s, 'reward') - 1 },
+  };
+}
+
+// 공격력 업그레이드: 스타처럼 미네랄로 끝없이 올린다. 값은 단계마다 1.45배.
+export const upgradeCost = (lv) => Math.round(300 * Math.pow(1.7, lv));
+
+export function buyUpgrade(s) {
+  const lv = s.upg ?? 0;
+  const cost = Math.round(upgradeCost(lv) * (1 - discount(s)));
+  if (s.minerals < cost) return fail('미네랄 부족');
+  s.minerals -= cost;
+  s.upg = lv + 1;
+  return { ok: true, level: s.upg };
+}
+
+export const upgradePrice = (s) => Math.round(upgradeCost(s.upg ?? 0) * (1 - discount(s)));
 
 export function newGame(meta = newMeta()) {
   const hp = buildingStats(0).hp;
@@ -46,6 +79,8 @@ export function newGame(meta = newMeta()) {
     lastClearAt: 0,
     bestLevel: 0,
     maxStage: 0,
+    upg: 0,
+    orbs: 0,
     lastSeen: 0,
     meta,
   };

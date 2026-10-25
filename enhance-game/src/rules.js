@@ -151,7 +151,7 @@ export const BOSS_TYPES = {
   regen: { name: '재생', hint: '체력이 계속 회복 → 짧게 몰아치기' },
 };
 const BOSS_ORDER = ['giant', 'armored', 'barrier', 'multihit', 'regen'];
-export const BOSS_TUNING = { hp: 1500, hpGrowth: 3.6, armor: 0.5, armorGrowth: 1.8 };
+export const BOSS_TUNING = { hp: 1500, hpGrowth: 4.3, armor: 0.5, armorGrowth: 1.8 };
 export const FIGHT_SECONDS = 30;
 
 export function bossTypesFor(stage) {
@@ -162,13 +162,19 @@ export function bossTypesFor(stage) {
   return second === first ? [first, BOSS_ORDER[(BOSS_ORDER.indexOf(first) + 1) % 5]] : [first, second];
 }
 
+// 5단계마다 빅보스: 체력이 훨씬 많아 그냥은 못 넘는 벽.
+export const BIG_EVERY = 5;
+export const BIG_HP_MULT = 3;
+export const isBigStage = (stage) => stage % BIG_EVERY === 0;
+
 export function makeBoss(stage) {
   const types = bossTypesFor(stage);
   const has = (t) => types.includes(t);
   const t = BOSS_TUNING;
+  const big = isBigStage(stage);
   return {
-    stage, types,
-    hp: t.hp * Math.pow(t.hpGrowth, stage - 1) * (has('giant') ? 2.5 : 1),
+    stage, types, big,
+    hp: t.hp * Math.pow(t.hpGrowth, stage - 1) * (has('giant') ? 2.5 : 1) * (big ? BIG_HP_MULT : 1),
     armor: t.armor * Math.pow(t.armorGrowth, stage - 1) * (has('armored') ? 6 : 1),
     barrier: has('barrier'),
     hitsNeeded: has('multihit') ? Math.round(15 * Math.pow(stage, 1.1)) : 0,

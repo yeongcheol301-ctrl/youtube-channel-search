@@ -490,6 +490,38 @@ body.suspense .enhance-btn { pointer-events: none; animation: throb 0.3s ease-in
 .collect .bar { display: block; height: 6px; border-radius: 3px; background: #2a221a; overflow: hidden; }
 .collect .bar em { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold-hi)); }
 .gchip.set { border-color: var(--gold-hi); color: #1a0f05; background: var(--gold-hi); font-weight: 800; }
+/* DPS가 주인공 */
+.dps-hero { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.dps-hero .pw-label { font-family: var(--font-head); font-size: 14px; color: var(--ember-hi); letter-spacing: 0.08em; }
+.dps-hero #power { font-size: 32px; color: #ffcf8a; letter-spacing: -0.5px; text-shadow: 0 0 14px rgba(255, 140, 60, 0.45); }
+.dps-hero small { font-family: var(--font-num); font-size: 11.5px; white-space: nowrap; }
+.hud-main { align-items: center; }
+.power-row .goal { height: 22px; }
+.power-row .goal em { line-height: 20px; font-size: 11.5px; }
+.goal.big { border-color: #8a2a1a; }
+.goal.big i { background: linear-gradient(90deg, #3a0606, #b81d12, #ff5a2a); }
+.min-line { display: inline-flex; align-items: baseline; gap: 4px; }
+.min-line .mineral { font-size: 15px; text-shadow: none; }
+.min-line small { font-family: var(--font-num); font-size: 11.5px; }
+.big-tag { color: #fff; background: linear-gradient(90deg, #8c1a12, #ff5a2a); border-radius: 3px; padding: 0 6px; letter-spacing: 0.06em; }
+.boss.big { border-color: #b81d12; box-shadow: 0 0 30px -10px #ff3a1a, inset 0 0 0 1px rgba(255, 90, 42, 0.2); }
+.boss.big .boss-art img { transform: scale(1.12); filter: drop-shadow(0 0 14px #ff3a1a); }
+b.heart { color: #ff7a6a; }
+.dps-plan { display: grid; gap: 8px; }
+.dps-plan ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; }
+.dps-plan li { display: grid; grid-template-columns: 112px 1fr; gap: 0 8px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 8px; background: #120f0c; font-size: 13px; }
+.dps-plan li b { grid-row: span 2; align-self: center; font-family: var(--font-head); color: var(--muted); font-size: 12.5px; }
+.dps-plan li span { font-family: var(--font-num); font-size: 12.5px; }
+.dps-plan li small { font-size: 11.5px; }
+.dps-plan li.go { border-color: var(--gold); box-shadow: 0 0 12px -6px var(--gold); }
+.dps-plan li.go b { color: var(--gold-hi); }
+.upg-card { display: grid; grid-template-columns: 1fr auto; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid #6a5220; border-radius: 10px; background: linear-gradient(180deg, #2a1d10, #140f0a); }
+.upg-card div { display: grid; min-width: 0; }
+.upg-card b { font-family: var(--font-head); color: var(--gold-hi); font-size: 14.5px; }
+.upg-card .lv { font-family: var(--font-num); color: #ffcf8a; }
+.upg-card small { font-size: 11.5px; }
+.upg-card .btn { padding: 10px 12px; white-space: nowrap; }
+.banner-inner.milestone strong.ms small { display: block; font-size: 16px; color: var(--fg); margin-top: 6px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>

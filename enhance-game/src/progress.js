@@ -1,6 +1,6 @@
 // 보스 도전, DPS 측정, 환생·해금·영구 능력, 자동화.
 import { WEAPONS, WEAPON_ORDER, makeBoss, bossFight, FIGHT_SECONDS, weaponAttack } from './rules.js';
-import { canAwaken, awaken, bestVein, canPromote, promote, atCap, newGame, ctxOf, fighters, miners, assign, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
+import { buyUpgrade, upgradePrice, canAwaken, awaken, bestVein, canPromote, promote, atCap, newGame, ctxOf, fighters, miners, assign, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -19,12 +19,16 @@ export function challengeBoss(s, nowMs = Date.now()) {
   if (!party.length) return fail('전투 무기가 없습니다');
   const boss = nextBoss(s);
   const r = bossFight(party, boss, ctxOf(s));
+  let heart = false;
   if (r.killed) {
     s.maxStage += 1;
     s.lastClearAt = nowMs;
     s.minerals += bossReward(boss.stage);
+    s.orbs = (s.orbs ?? 0) + 1;
+    heart = boss.big && boss.stage > (s.meta.bestStage ?? 0);
+    s.meta.bestStage = Math.max(s.meta.bestStage ?? 0, s.maxStage);
   }
-  return { ok: true, killed: r.killed, damage: r.damage, hits: r.hits, boss };
+  return { ok: true, killed: r.killed, damage: r.damage, hits: r.hits, boss, heart };
 }
 
 const SANDBAG = { stage: 0, types: [], hp: Infinity, armor: 0, barrier: false, hitsNeeded: 0, regenPct: 0 };
@@ -114,12 +118,20 @@ export function autoStep(s, cfg, rng) {
     return { ok: true, action: 'awaken' };
   }
   const low = s.weapons.filter((w) => w.level < cfg.target && !atCap(w)).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
+  if (low && s.minerals >= upgradePrice(s) && upgradePrice(s) <= enhancePrice(s, low)) {
+    buyUpgrade(s);
+    return { ok: true, action: 'upgrade' };
+  }
   if (low) {
     if (s.minerals < enhancePrice(s, low)) return { ok: true, action: 'wait' };
     enhance(s, low.id, rng);
     return { ok: true, action: 'enhance' };
   }
   const type = [...s.meta.unlocked].reverse().find((t) => s.minerals >= buyPrice(s, t));
+  if (!type && s.weapons.length && s.minerals >= upgradePrice(s)) {
+    buyUpgrade(s);
+    return { ok: true, action: 'upgrade' };
+  }
   if (!type) return { ok: true, action: 'wait' };
   buy(s, type);
   return { ok: true, action: 'buy' };
@@ -163,6 +175,7 @@ export function nextStep(s) {
   if (s.weapons.some((w) => canPromote(s, w))) return { key: 'promote', tab: 'forge', act: 'promote-all', text: '눌러서 승급하기 (재료 무기 한 자루 소모)' };
   if (!s.weapons.length) return { key: 'buy', tab: 'forge', text: '검을 사서 시작하세요' };
   if (bestVein(s) !== s.building.tier) return { key: 'vein', tab: 'mine', text: '더 많이 버는 광맥이 있습니다. 채집장에서 옮기세요' };
+  if (s.weapons.length && s.minerals >= upgradePrice(s) && s.weapons.every((w) => atCap(w) || s.minerals < enhancePrice(s, w) || upgradePrice(s) <= enhancePrice(s, w))) return { key: 'upg', tab: 'forge', act: 'upg', text: `공격력 업그레이드로 DPS +${5}% (${Math.round(upgradePrice(s))} 미네랄)` };
   if (canSpendCoins(s)) return { key: 'shop', tab: 'shop', text: '환생 코인으로 새 무기나 능력을 사세요' };
   return { key: 'enhance', tab: 'forge', text: '무기를 강화해 보스를 준비하세요 (자동 강화도 있습니다)' };
 }
