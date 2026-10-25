@@ -10,7 +10,7 @@ export const OFFLINE_CAP_SEC = 8 * 3600;
 const fail = (reason) => ({ ok: false, reason });
 
 export function newMeta() {
-  return { coins: 0, rebirths: 0, unlocked: ['sword'], perm: {}, discovered: [] };
+  return { coins: 0, rebirths: 0, unlocked: ['sword'], perm: {}, discovered: [], shards: 0, protect: 0, daily: null };
 }
 
 export function permLevel(s, key) {
@@ -96,7 +96,13 @@ function traitsOwed(w) {
   return traitsExpected(w) - w.traits.length;
 }
 
-export function enhance(s, id, rng) {
+// 깨지면 심연 조각이 남는다. 높은 등급일수록 많이.
+export const shardsFor = (w) => 2 * (w.grade + 1) ** 2;
+export const SHARD_COST = { protect: 30, pity: 10 };
+export const PITY_FILL = 50;
+
+// opts.protect: 파괴 방지권이 있으면 파괴 대신 한 단계 하락으로 막는다.
+export function enhance(s, id, rng, opts = {}) {
   const w = find(s, id);
   if (!w) return fail('없는 무기');
   if (w.pendingTraits) return fail('특성을 먼저 고르세요');
@@ -107,8 +113,15 @@ export function enhance(s, id, rng) {
   s.minerals -= cost;
   const r = rollEnhance(w, rng, permLevel(s, 'success'));
   if (r.result === 'destroy') {
+    if (opts.protect && (s.meta.protect ?? 0) > 0) {
+      s.meta.protect -= 1;
+      w.level = Math.max(0, w.level - 1);
+      return { ok: true, result: 'saved', weapon: w };
+    }
     s.weapons = s.weapons.filter((x) => x !== w);
-    return { ok: true, result: 'destroy', weapon: w };
+    const shards = shardsFor(w);
+    s.meta.shards = (s.meta.shards ?? 0) + shards;
+    return { ok: true, result: 'destroy', weapon: w, shards };
   }
   if (r.result === 'up' || r.result === 'up2') {
     s.bestLevel = Math.max(s.bestLevel, w.level);
@@ -116,6 +129,23 @@ export function enhance(s, id, rng) {
     if (traitsOwed(w) > 0) w.pendingTraits = offerTraits(w.type, rng);
   }
   return { ok: true, result: r.result, weapon: w };
+}
+
+export function craftProtect(s) {
+  if ((s.meta.shards ?? 0) < SHARD_COST.protect) return fail('심연 조각 부족');
+  s.meta.shards -= SHARD_COST.protect;
+  s.meta.protect = (s.meta.protect ?? 0) + 1;
+  return { ok: true };
+}
+
+export function fillPity(s, id) {
+  const w = find(s, id);
+  if (!w) return fail('없는 무기');
+  if (w.pity >= 100) return fail('천장이 이미 가득 찼습니다');
+  if ((s.meta.shards ?? 0) < SHARD_COST.pity) return fail('심연 조각 부족');
+  s.meta.shards -= SHARD_COST.pity;
+  w.pity = Math.min(100, w.pity + PITY_FILL);
+  return { ok: true };
 }
 
 export function pickTrait(s, id, key) {

@@ -11,6 +11,8 @@ page.on('pageerror', (e) => errors.push(e.message));
 await page.addInitScript((data) => localStorage.setItem('enhance-save-v2', data), JSON.stringify(save));
 await page.goto(process.argv[2]);
 await page.click('#splash');
+await page.waitForTimeout(1300);
+const later = await page.$('#modal [data-act="close"]'); if (later) await later.click();
 await page.waitForTimeout(400);
 await page.evaluate(() => document.querySelector('.tiles').scrollIntoView());
 await page.screenshot({ path: out + 'sc-tiles.png' });

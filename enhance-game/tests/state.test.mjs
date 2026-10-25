@@ -168,3 +168,19 @@ test('each grade grants traits at +5 and +10, counting earlier grades', async ()
   assert.equal(traitsExpected({ grade: 2, level: 5 }), 5);
   assert.equal(traitsExpected({ grade: 4, level: 15 }), 11);
 });
+
+test('a destroyed weapon leaves abyss shards; a protect ticket turns destroy into -1', async () => {
+  const { shardsFor, craftProtect, fillPity, SHARD_COST } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e12; buy(s, 'sword'); buy(s, 'sword');
+  const [a, b] = s.weapons;
+  for (const w of [a, b]) { w.grade = 2; w.level = 7; w.traits = ['atkPct', 'atkPct', 'atkPct', 'atkPct', 'atkPct']; }
+  const r = enhance(s, a.id, ((q) => () => q.shift())([0.99, 0.0]));
+  assert.equal(r.result, 'destroy'); assert.equal(r.shards, shardsFor(a)); assert.equal(s.meta.shards, 18);
+  assert.equal(craftProtect(s).ok, false, 'needs 30 shards');
+  s.meta.shards = SHARD_COST.protect + SHARD_COST.pity;
+  assert.equal(craftProtect(s).ok, true); assert.equal(s.meta.protect, 1);
+  const saved = enhance(s, b.id, ((q) => () => q.shift())([0.99, 0.0]), { protect: true });
+  assert.equal(saved.result, 'saved'); assert.equal(b.level, 6); assert.equal(s.meta.protect, 0); assert.ok(s.weapons.includes(b));
+  assert.equal(fillPity(s, b.id).ok, true); assert.equal(b.pity, 60);
+  assert.equal(fillPity(s, b.id).ok, false, 'out of shards');
+});

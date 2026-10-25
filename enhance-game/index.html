@@ -399,6 +399,43 @@ body.holding .enhance-btn:not(:disabled) { box-shadow: inset 0 0 30px rgba(255, 
 .book-card header .btn { margin-left: auto; padding: 6px 12px; }
 .info-btn { overflow: visible; }
 .pack-tag { top: 0; left: 0; border-radius: 6px 0 6px 0; }
+/* ---- 두근두근 강화 ---- */
+body.suspense #view > *:not(.anvil):not(.enhance-btn) { opacity: 0.18; transition: opacity 0.25s; }
+body.suspense .anvil { box-shadow: 0 0 0 1px var(--ember-hi), 0 0 50px -6px var(--ember-hi); }
+body.suspense #hud, body.suspense .tabs { opacity: 0.35; transition: opacity 0.25s; }
+body.suspense .enhance-btn { pointer-events: none; animation: throb 0.3s ease-in-out infinite; }
+@keyframes throb { 50% { box-shadow: 0 0 40px 0 #ff5a2a; } }
+.anvil-art.knock img.art { animation: knock 0.26s ease-out; }
+@keyframes knock { 30% { transform: translateY(6px) scale(0.95); filter: brightness(1.9) drop-shadow(0 0 18px #ffb060); } }
+.float.shard { color: #b68cff; font-size: 28px; }
+/* 심연 조각 */
+.shard-bar { display: grid; gap: 8px; padding: 10px 12px; border: 1px solid #4a3360; border-radius: 10px; background: linear-gradient(180deg, #1b1424, #110d16); }
+.shard-bar.risk { border-color: #7a4fb0; box-shadow: 0 0 18px -8px #9a55e8; }
+.shard-bar p { margin: 0; display: flex; gap: 14px; font-size: 13.5px; }
+.shard { color: #c9a6ff; } .ticket { color: var(--gold-hi); }
+.shard-bar .switch { font-size: 13px; }
+.shard-bar small { font-size: 11.5px; }
+/* 출석·미션 */
+.daily { display: grid; gap: 10px; padding: 12px; border: 1px solid #6a5220; border-radius: 10px; background: linear-gradient(180deg, #241a10, #120d09); }
+.attend-grid { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.attend-grid li { display: grid; justify-items: center; padding: 6px 0; border-radius: 8px; border: 1px solid var(--line); background: #15100c; }
+.attend-grid li b { font-family: var(--font-num); font-size: 16px; color: var(--gold-hi); line-height: 1.2; }
+.attend-grid li small { font-size: 10px; }
+.attend-grid li.big { border-color: var(--gold); }
+.attend-grid li.got { opacity: 0.45; background: #0f0c09; }
+.attend-grid li.got b::after { content: " ✓"; font-size: 11px; color: var(--ok); }
+.attend-grid li.now { border-color: var(--gold-hi); box-shadow: 0 0 14px -3px var(--gold-hi); animation: sel 0.5s var(--spring); }
+.missions { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.missions li { display: grid; grid-template-columns: 1fr 96px; gap: 10px; align-items: center; font-size: 13.5px; }
+.missions li.claimed { opacity: 0.5; }
+.missions li > small { text-align: center; }
+.missions .btn { padding: 7px 4px; font-size: 12.5px; }
+.missions .bar { display: block; height: 5px; border-radius: 3px; background: #2a221a; overflow: hidden; margin-top: 3px; }
+.missions .bar em { display: block; height: 100%; background: linear-gradient(90deg, var(--gold), var(--gold-hi)); transition: width 0.5s var(--spring); }
+.gold-t { color: var(--gold-hi); }
+/* 자랑 카드 */
+.brag img { display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); -webkit-user-select: auto; user-select: auto; -webkit-touch-callout: default; }
+.row .btn { flex: 1 1 28%; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>

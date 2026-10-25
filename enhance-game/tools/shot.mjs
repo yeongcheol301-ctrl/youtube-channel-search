@@ -12,6 +12,8 @@ await page.goto(url);
 await page.waitForSelector('.buy');
 await page.screenshot({ path: out + 'splash.png' });
 await page.click('#splash');
+await page.waitForTimeout(1300);
+const later = await page.$('#modal [data-act="close"]'); if (later) await later.click();
 await page.click('[data-act="buy"][data-type="sword"]');
 await page.evaluate(() => {});
 for (let i = 0; i < 3; i++) { await page.waitForTimeout(1100); }
@@ -21,6 +23,7 @@ await page.screenshot({ path: out + 'forge.png', fullPage: true });
 await page.evaluate(() => { const st = JSON.parse(localStorage.getItem('enhance-save-v2') || 'null'); return st; });
 const eb = await page.$('#view .enhance-btn:not([disabled])');
 if (eb) { const bx = await eb.boundingBox(); await page.mouse.move(bx.x + bx.width / 2, bx.y + bx.height / 2); await page.mouse.down(); await page.waitForTimeout(1500); await page.screenshot({ path: out + 'hold.png' }); await page.mouse.up(); }
+{ const c = await page.$('#modal [data-act="close"]'); if (c) await c.click(); }
 await page.click('.info-btn[data-type="axe"]');
 await page.waitForTimeout(500);
 await page.screenshot({ path: out + 'info.png' });
