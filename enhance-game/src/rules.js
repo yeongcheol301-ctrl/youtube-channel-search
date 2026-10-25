@@ -76,11 +76,14 @@ export function rollEnhance(weapon, rng, bonusPct = 0) {
   return { result: 'down', level: weapon.level };
 }
 
-const UNITS = [[1e16, '경'], [1e12, '조'], [1e8, '억'], [1e4, '만']];
+// 10억 아래는 스타처럼 쉼표 숫자(10,000), 그 위는 억·조·경 단위.
+const COMMA_LIMIT = 1e9;
+const UNITS = [[1e16, '경'], [1e12, '조'], [1e8, '억']];
 
 export function formatNumber(n) {
   if (!Number.isFinite(n)) return '측정 불가';
   if (n < 0) return '-' + formatNumber(-n);
+  if (n < COMMA_LIMIT) return Math.floor(n).toLocaleString('en-US');
   for (const [size, name] of UNITS) {
     if (n >= size) {
       const v = n / size;

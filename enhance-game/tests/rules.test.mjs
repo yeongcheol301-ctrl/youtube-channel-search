@@ -69,9 +69,15 @@ test('max level cannot enhance', () => {
   assert.equal(rollEnhance(w, always(0)).result, 'max'); assert.equal(w.level, 50);
 });
 
-test('formatNumber uses Korean units', () => {
+test('formatNumber uses commas below one billion like StarCraft', () => {
   assert.equal(formatNumber(950), '950');
-  assert.equal(formatNumber(12345), '1.2만');
+  assert.equal(formatNumber(10000), '10,000');
+  assert.equal(formatNumber(1740000), '1,740,000');
+  assert.equal(formatNumber(987654321), '987,654,321');
+});
+
+test('formatNumber switches to Korean units from one billion', () => {
+  assert.equal(formatNumber(1.23e9), '12.3억');
   assert.equal(formatNumber(3.4e12), '3.4조');
 });
 
