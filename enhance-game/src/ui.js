@@ -6,7 +6,7 @@ import {
 import {
   load, save, buy, enhance, sell, assign, combine, canCombine, pickTrait, upgradeBuilding,
   buildingUpgradeCost, tick, applyOffline, incomePerSec, ctxOf, fighters, miners, buyPrice,
-  enhancePrice, sellValue, permLevel,
+  enhancePrice, sellValue, permLevel, tapMine, tapGain,
 } from './state.js';
 import {
   challengeBoss, measureDps, rebirthCoins, rebirth, nextBoss, nextUnlock, unlock, buyPerm, PERMS,
@@ -62,7 +62,7 @@ let parts = [];
 function sparks(kind, color) {
   if (window.matchMedia?.('(prefers-reduced-motion: reduce)').matches) return;
   const fx = document.getElementById('fx');
-  const art = document.querySelector('.anvil-art') ?? document.querySelector('.boss-art');
+  const art = document.querySelector('.anvil-art') ?? document.querySelector('.boss-art') ?? document.querySelector('.tap-vein');
   if (!fx || !art) return;
   const r = art.getBoundingClientRect();
   const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
@@ -90,6 +90,16 @@ function stepFx() {
   }
   c.globalAlpha = 1;
   if (parts.length) requestAnimationFrame(stepFx); else sparks.running = false;
+}
+
+function tapSound() {
+  try {
+    audio ??= new (window.AudioContext || window.webkitAudioContext)();
+    const t = audio.currentTime, o = audio.createOscillator(), g = audio.createGain();
+    o.type = 'triangle'; o.frequency.setValueAtTime(520 + Math.random() * 160, t);
+    g.gain.setValueAtTime(0.05, t); g.gain.exponentialRampToValueAtTime(0.0001, t + 0.08);
+    o.connect(g).connect(audio.destination); o.start(t); o.stop(t + 0.1);
+  } catch { /* 소리를 못 내도 계속 */ }
 }
 
 function toast(text) {
@@ -241,7 +251,7 @@ function renderMine() {
   const next = buildingStats(b.tier + 1);
   return `
     <section class="mine">
-      <div class="mine-art"><img class="art" src="assets/building.webp" width="120" height="120" alt=""></div>
+      <button type="button" class="mine-art tap-vein" data-act="tap" aria-label="광맥 캐기"><img class="art" src="assets/building.webp" width="120" height="120" alt=""><span class="tap-hint">눌러서 캐기 +${fmt(tapGain(s))}</span></button>
       <div>
         <p class="grade-tag">미네랄 광맥 ${b.tier + 1}단계</p>
         <div class="hp"><span id="mine-hp"></span></div>
@@ -558,6 +568,14 @@ const handlers = {
   speed: () => {
     ui.speed = ui.speed === 3 ? 1 : ui.speed + 1;
     if (ui.speed > 1) toast(`${ui.speed}배속 · 시제품이라 무료, 출시 후에는 배속권으로 판매`);
+  },
+  tap: () => {
+    const g = tapMine(s);
+    const vein = document.querySelector('.tap-vein');
+    floatText(`+${fmt(g)}`, 'gain', vein);
+    vein?.classList.remove('hit'); void vein?.offsetWidth; vein?.classList.add('hit');
+    if (Math.random() < 0.35) sparks('up', '#6fd6c4');
+    tapSound(); buzz(8);
   },
   arrange: () => {
     const r = arrangeBest(s);

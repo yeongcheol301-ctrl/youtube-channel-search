@@ -284,6 +284,10 @@ img.logo { width: 100%; height: auto; mix-blend-mode: screen; margin-top: 8px; }
 .dps-card { display: grid; gap: 8px; padding: 12px; background: linear-gradient(180deg, #1c1712, #120f0c); border: 1px solid var(--line); border-radius: var(--r); }
 .dps-card h3.sec { margin: 0; }
 .auto small { flex-basis: 100%; }
+.tap-vein { position: relative; border: 0; padding: 0; cursor: pointer; color: inherit; }
+.tap-vein.hit img { animation: veinHit 0.14s ease-out; }
+@keyframes veinHit { 40% { transform: scale(0.93) rotate(-2deg); filter: brightness(1.5); } }
+.tap-hint { position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; font-weight: 800; color: #062320; background: var(--mineral); border-radius: 999px; padding: 1px 8px; box-shadow: 0 0 10px rgba(111, 214, 196, 0.5); }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>

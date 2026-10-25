@@ -109,3 +109,20 @@ test('new weapon starts mining so a fresh game earns minerals', () => {
   assert.equal(s.weapons[0].loc, 'mine');
   tick(s, 10); assert.ok(s.minerals > m);
 });
+
+test('tapping the ore vein gives bonus minerals even with no miners', async () => {
+  const { tapMine, tapGain } = await import('../src/state.js');
+  const s = newGame(); const m = s.minerals;
+  const g = tapMine(s);
+  assert.ok(g >= 2); assert.equal(s.minerals, m + g);
+});
+
+test('tap bonus grows with mining income but stays below one second of it plus base', async () => {
+  const { tapGain, incomePerSec } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e9;
+  for (let i = 0; i < 4; i++) buy(s, 'sword');
+  s.weapons.forEach((w) => { w.level = 20; });
+  const rate = incomePerSec(s);
+  assert.ok(tapGain(s) > 2);
+  assert.ok(tapGain(s) <= rate * 0.25 + 2);
+});

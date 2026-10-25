@@ -172,6 +172,20 @@ export function incomePerSec(s) {
   return mineralsPerSec(miners(s), s.building.tier, ctxOf(s));
 }
 
+// 광맥을 직접 탭하면 채집 수입의 1/5 + 기본 2를 더 캔다. 초당 4~5번 누르면 수입이 두 배쯤 된다.
+export const TAP_SHARE = 0.2;
+export const TAP_BASE = 2;
+
+export function tapGain(s) {
+  return TAP_BASE + incomePerSec(s) * TAP_SHARE;
+}
+
+export function tapMine(s) {
+  const g = tapGain(s);
+  s.minerals += g;
+  return g;
+}
+
 export function tick(s, seconds) {
   const rate = incomePerSec(s);
   s.minerals += rate * seconds;
