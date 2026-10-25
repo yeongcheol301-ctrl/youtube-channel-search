@@ -112,8 +112,8 @@ h3.sec { margin: 8px 0 0; font-size: 14px; font-weight: 800; display: flex; gap:
 .tile.on { outline: 2px solid var(--ember-hi); outline-offset: 1px; }
 .tile-lv { font-family: var(--font-num); font-size: 13px; }
 .tile-loc { font-size: 10px; border-radius: 3px; padding: 0 4px; }
-.tile-loc.mine { background: #0e2a27; color: var(--mineral); }
-.tile-loc.battle { background: #2e1410; color: var(--ember-hi); }
+.tile-loc.loc-mine { background: #0e2a27; color: var(--mineral); }
+.tile-loc.loc-battle { background: #2e1410; color: var(--ember-hi); }
 .tile-dot { position: absolute; top: 4px; right: 4px; width: 8px; height: 8px; border-radius: 50%; background: var(--gold); }
 .auto { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; background: var(--panel); border: 1px solid var(--line); border-radius: var(--r); padding: 10px 12px; font-size: 13px; }
 select { background: var(--panel-2); color: var(--fg); border: 1px solid var(--line); border-radius: 4px; padding: 4px; font: inherit; }
@@ -281,6 +281,9 @@ img.logo { width: 100%; height: auto; mix-blend-mode: screen; margin-top: 8px; }
 #toast:not([hidden]) { animation: toastIn 0.22s ease-out; }
 @keyframes toastIn { from { opacity: 0; transform: translate(-50%, 10px); } }
 
+.dps-card { display: grid; gap: 8px; padding: 12px; background: linear-gradient(180deg, #1c1712, #120f0c); border: 1px solid var(--line); border-radius: var(--r); }
+.dps-card h3.sec { margin: 0; }
+.auto small { flex-basis: 100%; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>

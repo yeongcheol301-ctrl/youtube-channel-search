@@ -1,6 +1,6 @@
 // 보스 도전, DPS 측정, 환생·해금·영구 능력, 자동화.
-import { WEAPONS, WEAPON_ORDER, makeBoss, bossFight, FIGHT_SECONDS } from './rules.js';
-import { newGame, ctxOf, fighters, miners, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
+import { WEAPONS, WEAPON_ORDER, makeBoss, bossFight, FIGHT_SECONDS, weaponAttack } from './rules.js';
+import { newGame, ctxOf, fighters, miners, assign, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -91,7 +91,7 @@ export function buyPerm(s, key) {
   return { ok: true };
 }
 
-export const AUTO_REBIRTHS = 3;
+export const AUTO_REBIRTHS = 0;
 export const BULK_SELL_REBIRTHS = 5;
 
 // 한 번 부를 때 한 가지 행동만 한다: 목표 미만 무기를 강화하거나, 없으면 새로 산다.
@@ -146,7 +146,7 @@ export function nextStep(s) {
   if (canKillBoss(s)) return { key: 'boss', tab: 'boss', text: `${s.maxStage + 1}단계 보스를 잡을 수 있습니다` };
   if (!s.weapons.length) return { key: 'buy', tab: 'forge', text: '검을 사서 시작하세요' };
   if (!miners(s).length) return { key: 'mine', tab: 'forge', text: '무기 하나를 채집으로 보내 미네랄을 버세요' };
-  if (!fighters(s).length) return { key: 'battle', tab: 'forge', text: '가장 센 무기를 강화해 전투로 보내세요' };
+  if (!fighters(s).length) return { key: 'battle', tab: 'forge', act: 'arrange', text: '눌러서 센 무기를 전투로 보내기 (나머지는 채집)' };
   if (canSpendCoins(s)) return { key: 'shop', tab: 'shop', text: '환생 코인으로 새 무기나 능력을 사세요' };
   return { key: 'enhance', tab: 'forge', text: '전투 무기를 강화해 보스를 준비하세요' };
 }
@@ -157,4 +157,22 @@ export function alerts(s) {
     boss: canKillBoss(s),
     shop: canSpendCoins(s),
   };
+}
+
+// 센 무기 절반은 전투, 나머지는 채집. 한 자루뿐이면 채집에 둔다(돈이 먼저).
+export function arrangeBest(s) {
+  const ctx = ctxOf(s);
+  const sorted = [...s.weapons].sort((a, b) => weaponAttack(b, ctx) - weaponAttack(a, ctx));
+  const nBattle = Math.min(10, Math.floor(sorted.length / 2));
+  sorted.forEach((w, i) => assign(s, w.id, i < nBattle ? 'battle' : 'mine'));
+  return { ok: true, battle: nBattle };
+}
+
+// 모든 무기가 전투에 나갔다고 칠 때의 샌드백 DPS.
+export function potentialDps(s) {
+  return bossFight(s.weapons, SANDBAG, ctxOf(s)).damage / FIGHT_SECONDS;
+}
+
+export function battleDps(s) {
+  return bossFight(fighters(s), SANDBAG, ctxOf(s)).damage / FIGHT_SECONDS;
 }

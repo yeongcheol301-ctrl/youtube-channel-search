@@ -68,10 +68,9 @@ test('success perm caps at +10 points', () => {
   assert.equal(buyPerm(s, 'success').ok, false);
 });
 
-test('automation unlocks at rebirth 3', () => {
+test('automation is available from the first run', () => {
   const s = newGame(); s.minerals = 1e6;
-  s.meta.rebirths = 2; assert.equal(autoStep(s, { target: 5 }, always(0)).ok, false); assert.equal(s.weapons.length, 0);
-  s.meta.rebirths = 3; assert.equal(autoStep(s, { target: 5 }, always(0)).ok, true); assert.equal(s.weapons.length, 1);
+  assert.equal(autoStep(s, { target: 5 }, always(0)).ok, true); assert.equal(s.weapons.length, 1);
   autoStep(s, { target: 5 }, always(0)); assert.equal(s.weapons[0].level, 1);
 });
 

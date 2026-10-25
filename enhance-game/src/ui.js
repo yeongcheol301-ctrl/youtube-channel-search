@@ -1,7 +1,7 @@
 // 화면: 상태를 읽어 그리고, 버튼은 data-act로 처리한다.
 import {
   WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS,
-  successRate, destroyChance, formatNumber, weaponAttack, partyArmorBreak, bossFight, buildingStats,
+  successRate, destroyChance, formatNumber, weaponAttack, partyArmorBreak, bossFight, buildingStats, buildingDps,
 } from './rules.js';
 import {
   load, save, buy, enhance, sell, assign, combine, canCombine, pickTrait, upgradeBuilding,
@@ -11,7 +11,7 @@ import {
 import {
   challengeBoss, measureDps, rebirthCoins, rebirth, nextBoss, nextUnlock, unlock, buyPerm, PERMS,
   permCost, autoStep, bulkSell, shouldHintRebirth, AUTO_REBIRTHS, BULK_SELL_REBIRTHS, bossReward,
-  nextStep, alerts,
+  nextStep, alerts, arrangeBest, potentialDps, battleDps,
 } from './progress.js';
 import { drawSprite, GRADE_COLORS } from './sprites.js';
 
@@ -155,12 +155,13 @@ function renderHeader() {
     </div>
     <div class="hud-sub">
       <span>초당 <b>+${fmt(incomePerSec(s))}</b></span>
-      <span>최고 DPS <b>${fmt(s.bestDps)}</b></span>
+      <span>전투 DPS <b>${fmt(battleDps(s))}</b></span>
+      <span>채집 DPS <b>${fmt(buildingDps(miners(s), ctxOf(s)))}</b></span>
       <span>보스 <b>${s.maxStage}</b>단계</span>
       <span>코인 <b>${fmt(s.meta.coins)}</b></span>
     </div>
     ${hint ? `<button type="button" class="hint" data-act="tab" data-tab="boss">10분째 DPS가 그대로예요. 환생하면 코인 ${fmt(rebirthCoins(s))}개 →</button>`
-      : `<button type="button" class="guide g-${step.key}" data-act="tab" data-tab="${step.tab}"><span>다음</span>${step.text}</button>`}`;
+      : `<button type="button" class="guide g-${step.key}" data-act="${step.act ?? 'tab'}" data-tab="${step.tab}"><span>다음</span>${step.text}</button>`}`;
   if (html !== lastHud) { lastHud = html; $('#hud').innerHTML = html; }
 }
 
@@ -170,7 +171,7 @@ function weaponTile(w) {
   return `<button type="button" class="tile aura-${auraOf(w.level)} ${on ? 'on' : ''}" data-act="select" data-id="${w.id}" style="--grade:${gradeColor(w.grade)}" aria-label="${GRADES[w.grade]} ${WEAPONS[w.type].name} +${w.level}">
     ${art(w.type, w.grade, w.level, 40)}
     <span class="tile-lv">+${w.level}</span>
-    <span class="tile-loc ${w.loc}">${w.loc === 'mine' ? '채집' : '전투'}</span>
+    <span class="tile-loc loc-${w.loc}">${w.loc === 'mine' ? '채집' : '전투'}</span>
     ${w.pendingTraits ? '<span class="tile-dot" title="특성 선택 대기"></span>' : ''}
   </button>`;
 }
@@ -220,10 +221,11 @@ function renderForge() {
   }).join('');
   const autoBox = s.meta.rebirths >= AUTO_REBIRTHS ? `
     <div class="auto">
-      <label class="switch"><input id="auto-on" type="checkbox" data-act="auto" ${ui.auto ? 'checked' : ''}> 자동 구매·강화</label>
+      <label class="switch"><input id="auto-on" type="checkbox" data-act="auto" ${ui.auto ? 'checked' : ''}> 자동 강화</label>
       <label>목표 <select id="auto-target" data-act="auto-target">${[5, 10, 15, 20, 25, 30].map((n) => `<option value="${n}" ${n === ui.autoTarget ? 'selected' : ''}>+${n}</option>`).join('')}</select></label>
       ${s.meta.rebirths >= BULK_SELL_REBIRTHS ? `<label>일괄 판매 <select id="sell-max" data-act="sell-max">${[3, 5, 8, 10].map((n) => `<option value="${n}" ${n === ui.sellMax ? 'selected' : ''}>+${n} 이하</option>`).join('')}</select></label>${btn('bulk-sell', '팔기')}` : '<small>일괄 판매는 환생 5회차부터</small>'}
-    </div>` : `<p class="note">자동 구매·강화는 환생 ${AUTO_REBIRTHS}회차부터 열립니다.</p>`;
+      <small>목표 단계까지 가장 싼 무기부터 자동 강화하고, 다 차면 새 무기를 삽니다. +10 미만은 깨지지 않습니다.</small>
+    </div>` : '';
   return `${main}
     <h3 class="sec">무기 구매</h3><div class="shop">${shop}</div>
     <h3 class="sec">보유 무기 <small>${s.weapons.length}자루 · 전투 ${fighters(s).length} · 채집 ${miners(s).length}</small></h3>
@@ -250,6 +252,16 @@ function renderMine() {
         </dl>
         <p class="note">채집 무기 ${miners(s).length}자루가 광맥을 부수고 있습니다. 도끼는 두 배로 부숩니다. 앱을 꺼도 최대 8시간치가 쌓입니다.</p>
       </div>
+    </section>
+    <section class="dps-card">
+      <h3 class="sec">DPS 안내</h3>
+      <dl class="stats">
+        <div><dt>채집 DPS</dt><dd>${fmt(buildingDps(miners(s), ctxOf(s)))}</dd></div>
+        <div><dt>전투 DPS</dt><dd>${fmt(battleDps(s))}</dd></div>
+        <div><dt>전부 전투 시</dt><dd>${fmt(potentialDps(s))}</dd></div>
+      </dl>
+      <p class="note">다음 보스(${nextBoss(s).stage}단계) 체력 ${fmt(nextBoss(s).hp)}은 30초에 DPS ${fmt(nextBoss(s).hp / FIGHT_SECONDS)} 이상이면 깹니다. 채집 무기를 전투로 돌리면 돈은 줄지만 보스를 빨리 잡습니다.</p>
+      ${btn('arrange', '추천 배치 (센 무기 절반 전투)', { cls: 'big gold', disabled: s.weapons.length < 2 })}
     </section>
     <button type="button" class="enhance-btn mint" data-act="upgrade" ${s.minerals < cost ? 'disabled' : ''}>
       <span class="eb-title">광맥 업그레이드</span>
@@ -301,6 +313,7 @@ function renderBoss() {
       <span class="eb-meta">${killed ? '지금이면 잡을 수 있습니다' : '아직 부족합니다 · 그래도 도전 가능'}</span>
     </button>
     <div class="row">
+      ${btn('arrange', '추천 배치', { disabled: s.weapons.length < 2 })}
       ${btn('dps', 'DPS 측정 (샌드백 30초)', { disabled: !party.length })}
     </div>
     <section class="rebirth">
@@ -546,6 +559,10 @@ const handlers = {
     ui.speed = ui.speed === 3 ? 1 : ui.speed + 1;
     if (ui.speed > 1) toast(`${ui.speed}배속 · 시제품이라 무료, 출시 후에는 배속권으로 판매`);
   },
+  arrange: () => {
+    const r = arrangeBest(s);
+    toast(r.battle ? `전투 ${r.battle}자루 · 채집 ${s.weapons.length - r.battle}자루로 배치했습니다` : '무기가 한 자루라 채집에 둡니다. 한 자루 더 사세요');
+  },
   'open-trait': () => { ui.modal = { kind: 'trait', id: ui.selected }; },
   trait: (d) => { pickTrait(s, ui.modal.id, d.key); ui.modal = null; toast(`특성 획득: ${TRAITS[d.key].label}`); },
   upgrade: () => { const r = upgradeBuilding(s); toast(r.ok ? `광맥 ${s.building.tier + 1}단계!` : r.reason); },
@@ -600,8 +617,13 @@ document.addEventListener('change', (e) => {
 [...Object.values(ART).flatMap((x) => Object.values(x)), ...Object.values(BOSS_ART), 'assets/building.webp', 'assets/logo.webp']
   .forEach((src) => { const im = new Image(); im.src = src; });
 requestAnimationFrame(animateNumbers);
-const gain = applyOffline(s, Date.now());
-if (gain > 1) ui.modal = { kind: 'offline', gain };
+// 1분 이상 비웠을 때만 '자는 동안 캤습니다' 창을 띄운다.
+function welcomeBack() {
+  const away = Date.now() - s.lastSeen;
+  const g = applyOffline(s, Date.now());
+  if (away >= 60e3 && g > 1) ui.modal = { kind: 'offline', gain: g };
+}
+welcomeBack();
 const splash = document.getElementById('splash');
 splash.hidden = false;
 splash.addEventListener('click', () => { splash.hidden = true; clang('up'); });
@@ -620,4 +642,4 @@ setInterval(() => {
 }, 1000);
 
 window.addEventListener('pagehide', persist);
-document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); else { const g = applyOffline(s, Date.now()); if (g > 1) { ui.modal = { kind: 'offline', gain: g }; render(); } } });
+document.addEventListener('visibilitychange', () => { if (document.hidden) persist(); else { welcomeBack(); render(); } });

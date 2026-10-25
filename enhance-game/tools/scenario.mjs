@@ -1,0 +1,25 @@
+// 사용자가 겪은 상황(검 9자루 전부 채집, 미네랄 174만)을 재현해 스크린샷을 남긴다.
+import { createRequire } from 'node:module';
+const { chromium } = createRequire(import.meta.url)('playwright');
+const out = new URL('../shots/', import.meta.url).pathname;
+const weapons = Array.from({ length: 9 }, (_, i) => ({ id: i + 1, type: 'sword', grade: 0, level: i === 8 ? 10 : 0, pity: 0, traits: i === 8 ? ['atkPct'] : [], pendingTraits: null, loc: 'mine' }));
+const save = { minerals: 1740000, weapons, nextId: 10, building: { tier: 0, hp: 5, hpLeft: 5, t: 0 }, bestDps: 0, bestDpsAt: 0, bestLevel: 10, maxStage: 0, lastSeen: Date.now(), meta: { coins: 0, rebirths: 0, unlocked: ['sword'], perm: {}, discovered: [] } };
+const browser = await chromium.launch();
+const page = await browser.newPage({ viewport: { width: 416, height: 900 }, deviceScaleFactor: 2 });
+const errors = [];
+page.on('pageerror', (e) => errors.push(e.message));
+await page.addInitScript((data) => localStorage.setItem('enhance-save-v1', data), JSON.stringify(save));
+await page.goto(process.argv[2]);
+await page.click('#splash');
+await page.waitForTimeout(400);
+await page.evaluate(() => document.querySelector('.tiles').scrollIntoView());
+await page.screenshot({ path: out + 'sc-tiles.png' });
+await page.click('.guide');
+await page.waitForTimeout(400);
+await page.evaluate(() => window.scrollTo(0, 0));
+await page.screenshot({ path: out + 'sc-after.png' });
+await page.click('.tabs [data-tab="mine"]');
+await page.waitForTimeout(400);
+await page.screenshot({ path: out + 'sc-mine.png', fullPage: true });
+console.log(JSON.stringify({ errors }));
+await browser.close();
