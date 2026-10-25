@@ -1,26 +1,25 @@
 // 화면·조작·하루 흐름. 계산은 rules.js / world.js / quests.js / light.js 가 맡는다.
 import {
-  DAY_SECONDS, NIGHT_SECONDS, MATERIALS, RECIPES, RECIPE_ORDER, PATIENTS, UPGRADES, PAGES, POTS,
-  ANIMALS_PER_DAY, WHITE_RABBIT_CHANCE, LADDER_WOOD, BRIDGE_WOOD, ARROW_PACK, ARROW_CRAFT, DAYS, MAX_MENU,
-  MED_UPGRADE_MAIN, MAX_MED_LEVEL,
+  DAY_SECONDS, NIGHT_SECONDS, MATERIALS, RECIPES, RECIPE_ORDER, PATIENTS, UPGRADES, PAGES,
+  FISH_PER_DAY, BREATH_PER_SEC, ARROW_PACK, DAYS, MAX_MENU, MED_UPGRADE_MAIN, MAX_MED_LEVEL,
 } from './data.js';
 import {
-  newState, addItem, count, basketWeight, carryLimit, canCarry, isOverweight, collapseLoss, spendStamina,
+  newState, addItem, count, basketWeight, carryLimit, canCarry, collapseLoss, spendStamina,
   isUnlocked, canDevelop, develop, canBrew, brew, medPrice, canUpgradeMed, upgradeMed, brewGrade, serve,
-  patientsForDay, pickPatientType, canBuyUpgrade, buyUpgrade, buyArrows, craftArrows, useWood,
-  maxStamina, herbZone, openPot, hasPage, digHardness,
+  patientsForDay, pickPatientType, canBuyUpgrade, buyUpgrade, buyArrows,
+  maxStamina, herbZone, openPot, hasPage, digHardness, swimSpeed, harpoonDamage, sellItem,
 } from './rules.js';
 import {
-  W, H, T, ZONES, ZONE_NAMES, BIG_TREE_X, makeWorld, tile, setTile, isSolid, canDig, canPlace, surfaceY,
-  isExposed, spawnDaily,
+  W, H, SEA, T, ZONES, ZONE_NAMES, BOAT_X, makeWorld, tile, setTile, isSolid, isWater, canDig, floorY,
+  chestSpots, spawnDaily, zoneAt,
 } from './world.js';
 import { activeQuests, questChoices, questAct, QUESTS } from './quests.js';
 import { drawSprite, spriteSize, sprite, iconURL } from './sprites.js';
 import { computeLight } from './light.js';
 import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
 
-const SAVE_KEY = 'hwata-proto1-v1';
-const REACH = 3.6;
+const SAVE_KEY = 'hwata-sea-v1';
+const REACH = 2.8;
 const $ = (id) => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
@@ -41,8 +40,7 @@ const shadeCtx = shadeCvs.getContext('2d');
 let G = null;
 const view = { cw: 0, ch: 0, ts: 24, dpr: 1 };
 const keys = new Set();
-const pad = { left: false, right: false, up: false, down: false };
-let upWas = false;
+const joy = { x: 0, y: 0, id: null };
 
 // ---------- 저장 ----------
 
@@ -89,7 +87,6 @@ function floatText(text, x, y, color = '#fff6d8') {
   G.floats.push({ text, x, y, t: 1.2, color });
 }
 
-// 얻은 재료 아이콘이 바구니로 날아간다
 function flyIcon(key, wx, wy) {
   const r = cvs.getBoundingClientRect();
   const bag = $('bagBtn').getBoundingClientRect();
@@ -102,11 +99,17 @@ function flyIcon(key, wx, wy) {
 
 function burst(x, y, color, n = 8, opt = {}) {
   for (let i = 0; i < n; i++) {
-    const a = Math.random() * Math.PI * 2, sp = (opt.speed ?? 4) * (0.4 + Math.random());
+    const a = Math.random() * Math.PI * 2, sp = (opt.speed ?? 3) * (0.4 + Math.random());
     G.parts.push({
-      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (opt.up ?? 2), life: opt.life ?? 0.6, max: opt.life ?? 0.6,
-      color, size: opt.size ?? 0.14, grav: opt.grav ?? 18, glow: !!opt.glow,
+      x, y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp - (opt.up ?? 0), life: opt.life ?? 0.7, max: opt.life ?? 0.7,
+      color, size: opt.size ?? 0.14, grav: opt.grav ?? 2, glow: !!opt.glow, drag: opt.drag ?? 2,
     });
+  }
+}
+
+function bubble(x, y, n = 1) {
+  for (let i = 0; i < n; i++) {
+    G.bubbles.push({ x: x + (Math.random() - 0.5) * 0.4, y, r: 0.06 + Math.random() * 0.1, t: 0, wob: Math.random() * 6 });
   }
 }
 
@@ -166,6 +169,17 @@ function fadeTo(text, mid) {
 
 // ---------- 하루 시작 ----------
 
+const HERBS = new Set(['seaweed', 'kelp', 'oyster', 'seaCucumber', 'clover']);
+const FISH = {
+  pollockFish: { hp: 1, speed: 3.2, item: 'pollock', w: 1.1, h: 0.5, small: true },
+  rockfishFish: { hp: 2, speed: 2, item: 'rockfish', w: 1.1, h: 0.7 },
+  cuttlefishFish: { hp: 1, speed: 2.5, item: 'cuttlebone', w: 1.2, h: 0.6, small: true },
+  seahorseFish: { hp: 1, speed: 0.6, item: 'seahorse', w: 0.6, h: 1.1, small: true, netOnly: true },
+  jelly: { hp: 99, speed: 0.6, w: 0.8, h: 0.9 },
+  moray: { hp: 2, speed: 0, w: 1.6, h: 0.5 },
+  shark: { hp: 8, speed: 2.4, w: 3, h: 1.1 },
+};
+
 function startDay() {
   const s = G.s;
   s.phase = 'day';
@@ -174,29 +188,30 @@ function startDay() {
   G.time = 0;
   G.props = spawnDaily(G.world, s.day, mulberry32(G.seed + s.day * 7919));
   for (const q of activeQuests(s)) {
-    G.props = G.props.filter((p) => ROOTS.has(p.type) || Math.abs(p.x - q.x) > 1);
-    const y = surfaceY(G.world, q.x) - 1;
-    G.props.push({ id: 'q-' + q.id, type: 'npc', quest: q.id, sprite: q.npc, x: q.x, y });
-    if (q.id === 'zhangfei') G.props.push({ id: 'bottle', type: 'bottle', x: q.x + 1, y: surfaceY(G.world, q.x + 1) - 1 });
+    if (q.id === 'zhangfei') {
+      G.props.push({ id: 'q-' + q.id, type: 'npc', quest: q.id, sprite: q.npc, x: q.x, y: SEA - 1, floating: true });
+      G.props.push({ id: 'bottle', type: 'bottle', x: q.x + 2, y: SEA - 1, floating: true });
+    } else {
+      G.props = G.props.filter((p) => Math.abs(p.x - q.x) > 1);
+      G.props.push({ id: 'q-' + q.id, type: 'npc', quest: q.id, sprite: q.npc, x: q.x, y: floorY(G.world, q.x) - 1 });
+    }
   }
-  G.props.push({ id: 'sign', type: 'sign', x: ZONES.log[0] - 2, y: surfaceY(G.world, ZONES.log[0] - 2) - 1 });
-  G.ents = spawnAnimals(mulberry32(G.seed + s.day * 104729));
-  G.arrows = [];
+  G.ents = spawnFish(mulberry32(G.seed + s.day * 104729));
+  G.shots = [];
   G.floats = [];
   G.parts = [];
+  G.bubbles = [];
   G.flyers = [];
   G.mine = null;
-  G.chop = null;
   G.gauge = null;
   G.aim = null;
   G.hold = null;
   G.dayLog = {};
-  G.zone = 'clinic';
+  G.zone = 'shallow';
   G.warned = false;
-  G.player = {
-    x: 8, y: surfaceY(G.world, 8) - 1.8 - 0.01, w: 0.7, h: 1.8, vx: 0, vy: 0, onGround: true, face: 1,
-    walkT: 0, coyote: 0, jumpBuf: 0, swing: 0, dropT: 0, wasWater: false,
-  };
+  G.lowWarned = false;
+  G.hurtT = 0;
+  G.player = { x: BOAT_X + 7.5, y: SEA + 0.2, w: 0.8, h: 0.8, vx: 0, vy: 0, face: 1, ang: 0, kick: 0, swing: 0, cool: 0 };
   G.cam = null;
   G.ended = false;
   save();
@@ -207,20 +222,32 @@ function startDay() {
   morningCard();
 }
 
-function spawnAnimals(rng) {
+function spawnFish(rng) {
   const ents = [];
-  const onGround = (x, h) => surfaceY(G.world, Math.floor(x)) - h - 0.01;
-  for (let i = 0; i < ANIMALS_PER_DAY.rabbit; i++) {
-    const x = 60 + rng() * 56;
-    ents.push({ type: 'rabbit', x, y: onGround(x, 0.7), w: 0.9, h: 0.7, vx: 0, vy: 0, t: rng() * 2, flee: 0, zig: 0, zdir: 1, hop: 0, home: [57, 119] });
+  const add = (type, x, y, extra = {}) => {
+    const f = FISH[type];
+    ents.push({ type, x, y, w: f.w, h: f.h, vx: 0, vy: 0, hp: f.hp, t: rng() * 3, face: rng() < 0.5 ? -1 : 1, home: { x, y }, ...extra });
+  };
+  const waterAt = (x0, x1, y0, y1) => {
+    for (let i = 0; i < 80; i++) {
+      const x = x0 + rng() * (x1 - x0), y = y0 + rng() * (y1 - y0);
+      if (isWater(G.world, Math.floor(x), Math.floor(y)) && isWater(G.world, Math.floor(x + 1), Math.floor(y))) return { x, y };
+    }
+    return { x: x0, y: y0 };
+  };
+  // 명태는 떼로 다닌다
+  for (let g = 0; g < 2; g++) {
+    const c = waterAt(50, 115, 28, 60);
+    for (let i = 0; i < FISH_PER_DAY.pollock / 2; i++) add('pollockFish', c.x + rng() * 3, c.y + rng() * 2, { school: g });
   }
-  for (let i = 0; i < ANIMALS_PER_DAY.pheasant; i++) {
-    const x = 24 + rng() * 92;
-    ents.push({ type: 'pheasant', x, y: onGround(x, 0.8), w: 1.1, h: 0.8, vx: 0, vy: 0, state: 'hide' });
-  }
-  if (rng() < WHITE_RABBIT_CHANCE && tile(G.world, 95, 36) !== T.AIR) {
-    ents.push({ type: 'whiteRabbit', x: 95, y: 35.29, w: 0.9, h: 0.7, vx: 0, vy: 0, t: 1, flee: 0, zig: 0, zdir: 1, hop: 0, home: [92, 99] });
-  }
+  for (let i = 0; i < FISH_PER_DAY.rockfish; i++) { const c = waterAt(48, 92, 25, 55); add('rockfishFish', c.x, c.y); }
+  for (let i = 0; i < FISH_PER_DAY.cuttlefish; i++) { const c = waterAt(45, 90, 22, 50); add('cuttlefishFish', c.x, c.y); }
+  if (rng() < 0.7) { const c = waterAt(120, 136, 90, 104); add('seahorseFish', c.x, c.y); }
+  for (let i = 0; i < FISH_PER_DAY.jelly; i++) { const c = waterAt(35, 135, 15, 90); add('jelly', c.x, c.y); }
+  // 곰치는 바위 틈에서 기다린다
+  for (const [x, y] of [[71, 44], [100, 62]]) add('moray', x, y, { lunge: 0, cool: 0 });
+  const c = waterAt(98, 132, 66, 100);
+  add('shark', c.x, c.y, { cool: 0 });
   return ents;
 }
 
@@ -228,51 +255,52 @@ function morningCard() {
   const s = G.s;
   const lines = [];
   if (s.day === 1) {
-    lines.push('산골 마을에 작은 한의원을 연 화타. 해가 지기 전에 마을 뒷들에서 약재를 캐 오고, 밤에는 그 약재로 약을 지어 환자를 봅니다.');
+    lines.push('바닷가 마을에 작은 한의원을 연 화타. 낮에는 배를 타고 나가 바닷속에서 약재를 따고, 밤에는 그 약재로 약을 지어 환자를 봅니다.');
     lines.push('');
-    lines.push('◀ ▶ 걷기 · ▲ 점프(사다리에서는 오르기) · ▼ 내려가기');
-    lines.push('[손] 약초를 누르고 있다가 원이 초록일 때 떼면 상급. 사람·나무도 손으로.');
-    lines.push('[괭이] 손 닿는 곳(밝은 원 안)의 흙을 누르고 있으면 금이 가다 깨집니다. 땅속 항아리도 깨 보세요.');
-    lines.push('[사다리]·[발판]·[흙] 놓을 자리를 누르면 미리 보이고, 손가락을 끌면 줄줄이 놓입니다.');
-    lines.push('[활] 쏠 곳을 누른 채 겨누고 떼면 쏩니다.');
+    lines.push('왼쪽 아래 둥근 판을 끌면 그쪽으로 헤엄칩니다.');
+    lines.push('숨 게이지가 떨어지기 전에 수면으로 올라오세요. 숨이 다하면 기절해 많이 잃습니다.');
+    lines.push('[손] 미역·다시마·굴·해삼을 누르고 있다가 원이 초록일 때 떼면 상급.');
+    lines.push('[작살] 쏠 곳을 누른 채 겨누고 떼면 쏩니다. [그물] 작은 물고기를 산 채로 잡습니다.');
+    lines.push('[삽] 모래를 누르고 있으면 팝니다. 가라앉은 상자와 진주조개가 묻혀 있습니다.');
+    lines.push('상어·곰치·해파리는 숨을 빼앗습니다. 다 했으면 배로 돌아와 [배에 오르기].');
     if (view.ch > view.cw) lines.push('휴대폰을 가로로 돌리면 더 넓게 보입니다.');
   } else {
     const tips = {
-      2: '농부들이 상처 약을 찾기 시작했습니다. 질경이 고약은 꿩 기름이 필요합니다.',
-      3: '오늘부터 칡즙을 개발할 수 있습니다. 칡은 언덕 땅속 깊이(8칸) 묻혀 있습니다.',
-      4: '오늘부터 도라지청을 개발할 수 있습니다. 도라지는 언덕 땅속 얕은 곳에 있습니다.',
-      5: '땅속 항아리 어딘가에 화타의 의서 「청낭서」 조각이 숨어 있다는 소문입니다.',
-      6: '개울가에서 누군가 쓰러져 있다는 소문이 돕니다.',
+      2: '아낙과 노인들이 미역탕과 굴죽을 찾습니다. 굴은 바위 옆면에 붙어 있습니다.',
+      3: '오늘부터 북어탕을 개발할 수 있습니다. 명태 떼는 산호 비탈 아래 깊은 물에서 다닙니다.',
+      4: '오늘부터 해삼환을 개발할 수 있습니다. 해삼은 깊은 바다 모래밭에 있습니다.',
+      5: '청낭서를 싣고 가던 배가 이 바다에 가라앉았다는 소문입니다. 모래 속 상자를 찾아보세요.',
+      6: '수면 근처에 누군가 술통을 붙잡고 떠 있다는 소문이 돕니다.',
       7: '마지막 날입니다. 오늘 밤 영업이 끝나면 1부가 마무리됩니다.',
     };
     lines.push(tips[s.day] ?? '');
   }
   const q = activeQuests(s).filter((x) => x.day === s.day);
-  if (q.length) lines.push('', `오늘 길에서 누군가를 만날 것 같습니다: ${q.map((x) => x.name).join(', ')}`);
+  if (q.length) lines.push('', `오늘 바다에서 누군가를 만날 것 같습니다: ${q.map((x) => x.name).join(', ')}`);
   openPanel({
     title: `${s.day}일째 아침`,
     body: lines.join('\n'),
     portrait: 'hwata',
-    choices: [{ label: '뒷들로 나간다', kind: 'primary', onClick: closePanel }],
+    choices: [{ label: '바다로 뛰어든다', kind: 'primary', onClick: () => { closePanel(); sfx.splash(); } }],
   });
 }
 
 // ---------- 오늘의 할 일 ----------
 
-const QUEST_HINT = { woodcutter: '나무꾼에게 질경이 주기 · 밭둑길', child: '우는 아이 달래기 · 꽃 들판', zhangfei: '쓰러진 큰 사내 살피기 · 개울가' };
+const QUEST_HINT = { haenyeo: '해녀 할망에게 미역 주기 · 얕은 바다', boy: '울상인 소년 살피기 · 산호 비탈', zhangfei: '물에 빠진 큰 사내 · 수면 근처' };
 
 function trackerLines() {
   const s = G.s;
   const out = [];
-  for (const q of activeQuests(s)) out.push({ icon: 'hand', text: QUEST_HINT[q.id] });
+  for (const q of activeQuests(s)) out.push({ icon: q.npc === 'zhangfei' ? 'barrel' : 'hand', text: QUEST_HINT[q.id] });
   for (const id of RECIPE_ORDER) {
     if (s.meds[id] || !isUnlocked(s, id)) continue;
     const need = Object.entries(RECIPES[id].inputs).map(([k, n]) => `${MATERIALS[k].name} ${Math.min(count(s, k), n * 2)}/${n * 2}`).join(' · ');
     out.push({ icon: RECIPES[id].main, text: `${RECIPES[id].name} 개발: ${need}` });
   }
   const p = (s.pages ?? []).length;
-  if (p < 3 && s.day >= 2) out.push({ icon: 'page', text: `청낭서 ${p}/3 · 땅속 항아리를 찾아보세요` });
-  if (!out.length) out.push({ icon: 'mugwort', text: '약재를 넉넉히 캐 두세요' });
+  if (p < 3 && s.day >= 2) out.push({ icon: 'chest', text: `청낭서 ${p}/3 · 모래 속 상자를 [삽]으로` });
+  if (!out.length) out.push({ icon: 'seaweed', text: '약재를 넉넉히 따 두세요' });
   return out.slice(0, 3);
 }
 
@@ -288,19 +316,23 @@ function endDay(reason) {
   releaseInput();
   const s = G.s;
   let body;
+  const under = playerCenter().y > SEA + 0.5;
   if (reason === 'home') {
     const early = G.time < DAY_SECONDS - 20;
     s.flags.earlyBonus = early;
-    body = early ? '해가 지기 전에 돌아왔다. 일찍 문을 연 덕에 오늘 밤 환자가 2명 더 찾아온다.' : '해 질 녘에 한의원으로 돌아왔다.';
+    sfx.pick();
+    body = early ? '해가 지기 전에 배에 올랐다. 일찍 문을 연 덕에 오늘 밤 환자가 2명 더 찾아온다.' : '해 질 녘에 배에 올랐다.';
+  } else if (reason === 'dark' && !under) {
+    body = '해가 저물어 배로 헤엄쳐 돌아왔다.';
   } else {
     const lost = collapseLoss(s);
-    const why = reason === 'tired' ? '기력이 다해 쓰러졌다.' : '해가 져서 길을 잃었다.';
-    body = `${why} 마을 사람에게 업혀 돌아왔다. 바구니에서 가장 많던 재료 한 가지만 남았다.${lost ? ` (${lost}개 잃음)` : ''}`;
+    const why = reason === 'faint' ? '숨이 다해 정신을 잃었다.' : '해가 져서 깜깜한 물속에서 길을 잃었다.';
+    body = `${why} 해녀들이 건져 배에 올려 주었다. 망사리에서 가장 많던 재료 한 가지만 남았다.${lost ? ` (${lost}개 잃음)` : ''}`;
   }
   const got = Object.entries(G.dayLog).map(([id, n]) => `${MATERIALS[id].name} ${n}`).join(', ');
   openPanel({
     title: '하루를 마치며',
-    body: body + (got ? `\n\n오늘 캔 것: ${got}` : ''),
+    body: body + (got ? `\n\n오늘 딴 것: ${got}` : ''),
     portrait: 'hwata',
     choices: [{ label: '한의원 문을 연다', kind: 'primary', onClick: () => { closePanel(); fadeTo(`${s.day}일째 밤`, openNight); } }],
   });
@@ -308,19 +340,20 @@ function endDay(reason) {
 
 // ---------- 입력 ----------
 
-const MODES = ['hand', 'hoe', 'bow', 'ladder', 'plank', 'dirt'];
+const MODES = ['hand', 'harpoon', 'net', 'shovel'];
+const TOOL_SPRITE = { hand: 'hand', harpoon: 'harpoon', net: 'netIcon', shovel: 'shovel' };
 
 function setMode(m) {
   G.mode = m;
   for (const b of document.querySelectorAll('[data-mode]')) b.classList.toggle('on', b.dataset.mode === m);
-  $('arrowType').hidden = m !== 'bow';
   G.mine = null;
 }
 
 function releaseInput() {
-  pad.left = pad.right = pad.up = pad.down = false;
-  for (const b of document.querySelectorAll('[data-pad]')) b.classList.remove('on');
-  if (G) { G.hold = null; G.aim = null; G.gauge = null; G.mine = null; G.chop = null; }
+  joy.x = joy.y = 0;
+  joy.id = null;
+  $('joyKnob').style.transform = '';
+  if (G) { G.hold = null; G.aim = null; G.gauge = null; G.mine = null; }
 }
 
 function screenToWorld(cx, cy) {
@@ -331,16 +364,17 @@ const playerCenter = () => ({ x: G.player.x + G.player.w / 2, y: G.player.y + G.
 const distTo = (x, y) => { const c = playerCenter(); return Math.hypot(c.x - x, c.y - y); };
 const inReach = (tx, ty) => distTo(tx + 0.5, ty + 0.5) <= REACH;
 
-function propAt(tx, ty) {
-  const hit = (p) => p.x === tx && (p.y === ty || (p.type === 'npc' && p.y - 1 === ty) || (p.type === 'tree' && ty >= p.y - 2 && ty <= p.y));
-  return G.props.find((p) => p.type === 'npc' && hit(p)) ?? G.props.find(hit);
+function propAt(wx, wy) {
+  let best = null, bd = 1.1;
+  for (const p of G.props) {
+    const cy = p.type === 'npc' ? p.y - 0.4 : p.type === 'kelp' ? p.y - 1.5 : p.y + 0.5;
+    const d = Math.hypot(p.x + 0.5 - wx, cy - wy) - (p.type === 'kelp' ? 1.2 : 0);
+    if (d < bd) { bd = d; best = p; }
+  }
+  return best;
 }
 
-const HERBS = new Set(['mugwort', 'chrysanthemum', 'plantain', 'dandelion', 'dropwort', 'clover']);
-const ROOTS = new Set(['bellflower', 'kudzu']);
-const PLACE_TILE = { ladder: T.LADDER, plank: T.PLANK, dirt: T.DIRT };
-
-function pointerWorld(e) {
+function pointerPos(e) {
   const r = cvs.getBoundingClientRect();
   return { sx: e.clientX - r.left, sy: e.clientY - r.top };
 }
@@ -349,16 +383,16 @@ function onPointerDown(e) {
   unlockAudio();
   if (!G || G.paused || G.s.phase !== 'day' || G.ended) return;
   cvs.setPointerCapture(e.pointerId);
-  const { sx, sy } = pointerWorld(e);
+  const { sx, sy } = pointerPos(e);
   G.hold = { id: e.pointerId, sx, sy, mode: G.mode };
   const wp = screenToWorld(sx, sy);
-  if (G.mode === 'bow') { G.aim = { x: wp.x, y: wp.y }; return; }
-  if (G.mode === 'hand') handPress(Math.floor(wp.x), Math.floor(wp.y));
+  if (G.mode === 'harpoon' || G.mode === 'net') { G.aim = { x: wp.x, y: wp.y }; return; }
+  if (G.mode === 'hand') handPress(wp);
 }
 
 function onPointerMove(e) {
   if (!G || G.s.phase !== 'day') return;
-  const { sx, sy } = pointerWorld(e);
+  const { sx, sy } = pointerPos(e);
   if (e.pointerType === 'mouse') G.hover = { sx, sy };
   if (!G.hold || e.pointerId !== G.hold.id) return;
   G.hold.sx = sx;
@@ -370,55 +404,39 @@ function onPointerUp(e) {
   const mode = G.hold.mode;
   G.hold = null;
   G.mine = null;
-  G.chop = null;
-  if (mode === 'bow' && G.aim) fire();
+  if ((mode === 'harpoon' || mode === 'net') && G.aim) fire(mode);
   G.aim = null;
   if (G.gauge) finishGauge();
 }
 
-function handPress(tx, ty) {
-  if (tx <= 11 && ty >= surfaceY(G.world, tx) - 6 && ty < surfaceY(G.world, tx)) return askHome();
-  const p = propAt(tx, ty);
+function nearBoat() {
+  const c = playerCenter();
+  return Math.abs(c.x - (BOAT_X + 3)) < 4 && c.y < SEA + 1.5;
+}
+
+function handPress(wp) {
+  const tx = Math.floor(wp.x), ty = Math.floor(wp.y);
+  if (tx >= BOAT_X && tx <= BOAT_X + 6 && ty <= SEA && ty >= SEA - 4) return nearBoat() ? askHome() : toast('배 가까이 수면으로 올라오세요');
+  const p = propAt(wp.x, wp.y);
   if (p) return tapProp(p);
-  const t = tile(G.world, tx, ty);
-  if (t === T.ROOT) return tapRoot(tx, ty);
-  if (t === T.LOG) return toast('너무 큰 통나무입니다. 도끼가 있어야 치울 수 있습니다');
-  if (canDig(G.world, tx, ty)) return toast('흙은 [괭이]로 팝니다');
+  if (canDig(G.world, tx, ty)) return toast('모래는 [삽]으로 팝니다');
 }
 
 function tapProp(p) {
   if (p.type === 'npc') {
-    if (distTo(p.x + 0.5, p.y) > REACH + 1) return toast('조금 더 가까이 가야 합니다');
+    if (distTo(p.x + 0.5, p.y) > REACH + 1.5) return toast('조금 더 가까이 헤엄쳐 가세요');
     return openQuest(p.quest);
   }
-  if (p.type === 'sign') {
-    return openPanel({
-      title: '나무 팻말',
-      body: '"이 너머 대나무 숲. 큰 나무가 쓰러져 길이 막혔음."\n\n도끼가 있어야 지나갈 수 있겠다. (대나무 숲은 시제품 2에서 열립니다)',
-      icon: 'sign',
-      choices: [{ label: '돌아선다', onClick: closePanel }],
-    });
-  }
-  if (ROOTS.has(p.type)) return tapRoot(p.x, p.y);
-  if (p.type === 'bottle') return toast('빈 술병이 뒹굴고 있다');
-  if (p.type === 'beehive') return toast('너무 높다. [활]로 떨어뜨려야겠다');
-  if (!inReach(p.x, p.y)) return toast('손이 닿지 않습니다. 더 가까이 가세요');
-  if (p.type === 'tree') { G.chop = { prop: p, t: 0, dur: 0.9 }; return; }
-  if (p.type === 'cicada') { if (gain('cicada', false, p.x + 0.5, p.y + 0.5)) removeProp(p); return; }
+  if (p.type === 'bottle') return toast('빈 술병이 둥둥 떠 있다');
+  const cy = p.type === 'kelp' ? p.y - 1 : p.y;
+  if (distTo(p.x + 0.5, cy + 0.5) > REACH + (p.type === 'kelp' ? 1 : 0)) return toast('손이 닿지 않습니다. 더 가까이 가세요');
   if (p.type === 'clover') {
-    if (gain('clover', false, p.x + 0.5, p.y + 0.5)) { removeProp(p); toast('네잎클로버! 다음에 캐는 재료 5개가 모두 상급이 됩니다', 'good'); }
+    if (gain('clover', false, p.x + 0.5, p.y + 0.5)) { removeProp(p); toast('불가사리! 다음에 따는 재료 5개가 모두 상급이 됩니다', 'good'); }
     return;
   }
-  if (HERBS.has(p.type)) G.gauge = { prop: p, item: p.type, x: p.x, y: p.y, t: 0, dur: 1.0, zone: herbZone(G.s) };
-}
-
-function tapRoot(tx, ty) {
-  if (!inReach(tx, ty)) return toast('손이 닿지 않습니다. 더 가까이 가세요');
-  if (!isExposed(G.world, tx, ty)) return toast('뿌리 둘레의 흙을 [괭이]로 더 파야 합니다');
-  const p = G.props.find((q) => q.x === tx && q.y === ty && ROOTS.has(q.type));
-  if (!p) return;
   const [a, b] = herbZone(G.s);
-  G.gauge = { prop: p, item: p.type, x: tx, y: ty, t: 0, dur: 1.3, zone: [a + 0.06, b - 0.02], root: true };
+  const zone = p.type === 'oyster' ? [a + 0.06, b - 0.02] : [a, b];
+  G.gauge = { prop: p, item: p.type, x: p.x, y: cy, t: 0, dur: p.type === 'oyster' ? 1.2 : 1.0, zone };
 }
 
 function finishGauge() {
@@ -426,29 +444,26 @@ function finishGauge() {
   G.gauge = null;
   const v = g.t / g.dur;
   const hq = v >= g.zone[0] && v <= g.zone[1];
-  if (!canCarry(G.s, g.item)) return toast('바구니가 가득 찼습니다', 'bad');
-  if (g.root) {
-    spendStamina(G.s, 1);
-    setTile(G.world, g.x, g.y, T.AIR);
-    burst(g.x + 0.5, g.y + 0.5, '#7a5534', 8);
-    if (v > g.zone[1]) toast('너무 세게 뽑아 뿌리가 끊겼다');
-  } else burst(g.x + 0.5, g.y + 0.6, '#7dbb59', 6, { speed: 3 });
+  if (!canCarry(G.s, g.item)) return toast('망사리가 가득 찼습니다', 'bad');
+  burst(g.x + 0.5, g.y + 0.5, g.item === 'oyster' ? '#c9c9c0' : '#7a8a3a', 7, { speed: 2 });
+  bubble(g.x + 0.5, g.y + 0.3, 3);
+  if (v > g.zone[1]) toast(g.item === 'oyster' ? '너무 세게 떼어 굴이 깨졌다' : '너무 세게 뜯어 상했다');
   G.player.swing = 0.25;
   gain(g.item, hq, g.x + 0.5, g.y + 0.5);
   removeProp(g.prop);
 }
 
 function gain(id, hq, wx, wy) {
-  if (!canCarry(G.s, id)) { toast('바구니가 가득 찼습니다', 'bad'); return false; }
+  if (!canCarry(G.s, id)) { toast('망사리가 가득 찼습니다', 'bad'); return false; }
   const before = G.s.inv[id]?.hq ?? 0;
   const first = addItem(G.s, id, hq);
   const isHq = G.s.inv[id].hq > before && MATERIALS[id].weight > 0;
   G.dayLog[id] = (G.dayLog[id] ?? 0) + 1;
   const c = playerCenter();
-  floatText(`${MATERIALS[id].name}${isHq ? ' ★' : ''}`, c.x, c.y - 1.3, isHq ? '#ffd76a' : '#fff6d8');
+  floatText(`${MATERIALS[id].name}${isHq ? ' ★' : ''}`, c.x, c.y - 1.1, isHq ? '#ffd76a' : '#fff6d8');
   flyIcon(id, wx ?? c.x, wy ?? c.y);
-  if (isHq) { sfx.pickHq(); burst(wx ?? c.x, wy ?? c.y, '#ffd76a', 10, { glow: true, grav: 2, speed: 3 }); } else sfx.pick();
-  if (first && MATERIALS[id].weight > 0) toast(`새 재료 발견! 도감에 올랐습니다: ${MATERIALS[id].name}`, 'good');
+  if (isHq) { sfx.pickHq(); burst(wx ?? c.x, wy ?? c.y, '#ffd76a', 10, { glow: true, speed: 2 }); } else sfx.pick();
+  if (first) toast(`새 재료 발견! 도감에 올랐습니다: ${MATERIALS[id].name}`, 'good');
   renderTracker();
   return true;
 }
@@ -457,94 +472,75 @@ function removeProp(p) {
   G.props = G.props.filter((q) => q !== p);
 }
 
-const PLACE_COST = { ladder: () => useWood(G.s, LADDER_WOOD), plank: () => useWood(G.s, BRIDGE_WOOD), dirt: () => useDirt() };
-
-function useDirt() {
-  if (count(G.s, 'dirt') < 1) return false;
-  G.s.inv.dirt.n -= 1;
-  return true;
-}
-
-function placeCheck(tx, ty) {
-  const kind = PLACE_TILE[G.mode];
-  if (!inReach(tx, ty)) return { ok: false, why: 'far' };
-  if (!canPlace(G.world, tx, ty, kind, G.player)) return { ok: false, why: 'spot' };
-  const have = G.mode === 'dirt' ? count(G.s, 'dirt') : count(G.s, 'wood');
-  if (have < 1) return { ok: false, why: 'stock' };
-  return { ok: true };
-}
-
 function breakTile(tx, ty) {
   const t = tile(G.world, tx, ty);
-  setTile(G.world, tx, ty, T.AIR);
+  setTile(G.world, tx, ty, T.WATER);
   G.player.swing = 0.25;
-  const cx = tx + 0.5, cy = ty + 0.5;
-  if (t === T.POT) return breakPot(tx, ty);
-  if (t === T.LADDER || t === T.PLANK) {
-    addItem(G.s, 'wood');
-    sfx.place();
-    burst(cx, cy, '#a7743f', 5);
+  burst(tx + 0.5, ty + 0.5, '#d9c58f', 10, { size: 0.12, speed: 2.5 });
+  bubble(tx + 0.5, ty + 0.5, 3);
+  if (t === T.CHEST) return openChest(tx, ty);
+  if (t === T.CLAM) {
+    sfx.pickHq();
+    burst(tx + 0.5, ty + 0.5, '#f4f0f8', 12, { glow: true, speed: 2 });
+    toast('진주조개 속에서 진주가 나왔다!', 'good');
+    gain('pearl', Math.random() < 0.3, tx + 0.5, ty + 0.5);
     return;
   }
-  addItem(G.s, 'dirt');
   sfx.breakDirt();
-  burst(cx, cy, t === T.GRASS ? '#6aa04f' : '#7a5534', 10, { size: 0.16 });
-  spendStamina(G.s, 1);
-  G.props = G.props.filter((p) => !(HERBS.has(p.type) && p.x === tx && p.y === ty - 1));
+  G.props = G.props.filter((p) => !(p.x === tx && p.y === ty - 1 && p.type !== 'npc'));
 }
 
-function breakPot(tx, ty) {
+function openChest(tx, ty) {
   const s = G.s;
-  const i = POTS.findIndex((p) => p.x === tx && p.y === ty);
+  const spot = chestSpots(G.world).find((c) => c.x === tx && c.y === ty);
   sfx.breakPot();
-  burst(tx + 0.5, ty + 0.5, '#a86b3e', 14, { size: 0.18, speed: 5 });
-  if (i < 0 || s.pots.includes(i)) return toast('빈 항아리였다');
-  s.pots.push(i);
-  const r = openPot(s, POTS[i].loot);
-  const loot = POTS[i].loot;
-  const icon = loot.page ? 'page' : loot.money ? 'coin' : loot.arrows ? 'arrowIcon' : loot.item;
-  flyIcon(icon, tx + 0.5, ty + 0.5);
+  burst(tx + 0.5, ty + 0.5, '#a86b3e', 14, { size: 0.18, speed: 4 });
+  if (!spot || s.pots.includes(spot.i)) return toast('빈 상자였다');
+  s.pots.push(spot.i);
+  const r = openPot(s, spot.loot);
+  const loot = spot.loot;
+  flyIcon(loot.page ? 'page' : loot.money ? 'coin' : loot.arrows ? 'netIcon' : loot.item, tx + 0.5, ty + 0.5);
   if (r.page) {
     sfx.page();
     burst(tx + 0.5, ty + 0.5, '#ffe9a8', 24, { glow: true, grav: -1, speed: 3, life: 1.2 });
     openPanel({
       title: PAGES[r.page].name,
-      body: `항아리 속에서 오래된 두루마리가 나왔다. 화타가 젊은 시절 적어 둔 의서 「청낭서」의 한 장이다.\n\n${PAGES[r.page].perk}.\n\n(${s.pages.length}/3장)`,
+      body: `가라앉은 상자 속에서 기름종이에 싸인 두루마리가 나왔다. 화타가 젊은 시절 적어 둔 의서 「청낭서」의 한 장이다. 다행히 젖지 않았다.\n\n${PAGES[r.page].perk}.\n\n(${s.pages.length}/3장)`,
       icon: 'page',
       choices: [{ label: '소중히 챙긴다', kind: 'primary', onClick: closePanel }],
     });
   } else {
     sfx.coin();
-    toast(`항아리 속에서 ${r.text}!`, 'good');
+    toast(`상자 속에서 ${r.text}!`, 'good');
   }
   renderTracker();
 }
 
-function fire() {
-  const s = G.s;
-  if (s.arrows <= 0) return toast('화살이 없습니다. 밤에 사거나 만드세요', 'bad');
+function fire(mode) {
+  const p = G.player, s = G.s;
+  if (p.cool > 0) return;
+  if (mode === 'net' && s.arrows <= 0) return toast('그물이 없습니다. 밤에 사세요', 'bad');
   const c = playerCenter();
-  const dx = G.aim.x - c.x, dy = G.aim.y - (c.y - 0.3);
+  const dx = G.aim.x - c.x, dy = G.aim.y - c.y;
   const len = Math.hypot(dx, dy) || 1;
-  const speed = s.upgrades.bow ? 27 : 18;
-  s.arrows -= 1;
-  spendStamina(s, 2);
+  const speed = mode === 'net' ? 12 : 24;
+  if (mode === 'net') s.arrows -= 1;
+  p.cool = mode === 'net' ? 0.6 : 0.45;
+  p.face = dx >= 0 ? 1 : -1;
+  p.swing = 0.2;
   sfx.shoot();
-  G.player.face = dx >= 0 ? 1 : -1;
-  G.player.swing = 0.2;
-  G.arrows.push({ x: c.x, y: c.y - 0.3, vx: (dx / len) * speed, vy: (dy / len) * speed, type: G.arrowType, life: 3, stuck: false });
+  bubble(c.x, c.y, 2);
+  G.shots.push({ x: c.x, y: c.y, vx: (dx / len) * speed, vy: (dy / len) * speed, mode, life: mode === 'net' ? 0.45 : 0.42, back: false });
 }
-
-const arrowGravity = () => (G.s.upgrades.bow ? 7 : 12);
 
 function askHome() {
   openPanel({
-    title: '한의원',
-    body: '오늘 탐험을 마치고 한의원으로 들어갈까요? 해가 지기 전에 들어가면 오늘 밤 환자가 더 찾아옵니다.',
+    title: '배',
+    body: '오늘 물질을 마치고 배에 오를까요? 해가 지기 전에 돌아가면 오늘 밤 환자가 더 찾아옵니다.',
     portrait: 'hwata',
     choices: [
-      { label: '들어간다', kind: 'primary', onClick: () => { closePanel(); endDay('home'); } },
-      { label: '조금 더 돌아본다', onClick: closePanel },
+      { label: '배에 오른다', kind: 'primary', onClick: () => { closePanel(); endDay('home'); } },
+      { label: '조금 더 둘러본다', onClick: closePanel },
     ],
   });
 }
@@ -557,10 +553,10 @@ function openQuest(id, text) {
     onClick: () => {
       const r = questAct(G.s, id, c.action);
       if (r.done) {
-        G.props = G.props.filter((p) => p.quest !== id);
+        G.props = G.props.filter((p) => p.quest !== id && !(id === 'zhangfei' && p.type === 'bottle'));
         sfx.page();
         renderTracker();
-        openPanel({ title: q.name, body: r.text, portrait: q.npc, choices: [{ label: '길을 떠난다', kind: 'primary', onClick: closePanel }] });
+        openPanel({ title: q.name, body: r.text, portrait: q.npc, choices: [{ label: '다시 물속으로', kind: 'primary', onClick: closePanel }] });
         toast('퀘스트 완료', 'good');
       } else {
         if (c.action === 'clue') sfx.pickHq(); else sfx.wrong();
@@ -581,151 +577,73 @@ function hitsSolid(b) {
   return false;
 }
 
-// 위에서만 밟히는 칸: 발판, 그리고 꼭대기 사다리
-function isPlatform(x, y) {
-  const t = tile(G.world, x, y);
-  return t === T.PLANK || (t === T.LADDER && tile(G.world, x, y - 1) !== T.LADDER);
-}
-
-function moveBody(b, dt, opt = {}) {
+function moveBody(b, dt) {
   const dx = b.vx * dt;
   b.hitWall = false;
   if (dx) {
     b.x += dx;
     if (hitsSolid(b)) {
-      let stepped = false;
-      if (opt.autoStep && b.onGround) {
-        b.y -= 1.01;
-        if (!hitsSolid(b)) stepped = true; else b.y += 1.01;
-      }
-      if (!stepped) {
-        b.x = dx > 0 ? Math.floor(b.x + b.w) - b.w - 0.001 : Math.floor(b.x) + 1.001;
-        b.hitWall = true;
-        b.vx = 0;
-      }
+      b.x = dx > 0 ? Math.floor(b.x + b.w) - b.w - 0.001 : Math.floor(b.x) + 1.001;
+      b.hitWall = true;
+      b.vx = 0;
     }
   }
   const dy = b.vy * dt;
-  const prevBottom = b.y + b.h;
   b.onGround = false;
-  b.y += dy;
-  if (hitsSolid(b)) {
-    if (dy > 0) { b.y = Math.floor(b.y + b.h) - b.h - 0.001; b.onGround = true; } else b.y = Math.floor(b.y) + 1.001;
-    b.vy = 0;
-  } else if (dy > 0 && opt.platforms && !b.dropping) {
-    const row = Math.floor(b.y + b.h);
-    if (prevBottom <= row + 0.02) {
-      const x0 = Math.floor(b.x), x1 = Math.floor(b.x + b.w - 1e-6);
-      for (let x = x0; x <= x1; x++) {
-        if (isPlatform(x, row)) { b.y = row - b.h - 0.001; b.vy = 0; b.onGround = true; break; }
-      }
-    }
-  }
-  if (!b.onGround && opt.platforms && !b.dropping && b.vy >= 0) {
-    // 판 위에 가만히 서 있을 때도 땅으로 친다
-    const row = Math.floor(b.y + b.h + 0.01);
-    if (Math.abs(b.y + b.h - row) < 0.02) {
-      const x0 = Math.floor(b.x), x1 = Math.floor(b.x + b.w - 1e-6);
-      for (let x = x0; x <= x1; x++) if (isPlatform(x, row)) { b.onGround = true; break; }
+  if (dy) {
+    b.y += dy;
+    if (hitsSolid(b)) {
+      if (dy > 0) { b.y = Math.floor(b.y + b.h) - b.h - 0.001; b.onGround = true; } else b.y = Math.floor(b.y) + 1.001;
+      b.hitWall = true;
+      b.vy = 0;
     }
   }
   b.x = clamp(b.x, 0, W - b.w);
+  b.y = clamp(b.y, 0, H - b.h);
 }
 
-function inWater(b) {
-  const cx = Math.floor(b.x + b.w / 2), cy = Math.floor(b.y + b.h * 0.6);
-  return tile(G.world, cx, cy) === T.WATER;
-}
-
-function ladderAt(b) {
-  const cx = Math.floor(b.x + b.w / 2);
-  return tile(G.world, cx, Math.floor(b.y + b.h - 0.1)) === T.LADDER || tile(G.world, cx, Math.floor(b.y + 0.3)) === T.LADDER;
-}
-
-// 사다리를 들고 벽에 붙어 ▲를 누르면 발밑부터 머리 위까지 사다리를 이어 놓는다. 벽이 끝나면 멈춘다.
-function autoLadder(p, dt) {
-  G.autoLadderT = (G.autoLadderT ?? 0) - dt;
-  if (G.autoLadderT > 0) return;
-  const cx = Math.floor(p.x + p.w / 2);
-  const head = Math.floor(p.y);
-  if (!isSolid(G.world, cx - 1, head) && !isSolid(G.world, cx + 1, head)) return;
-  for (let y = Math.floor(p.y + p.h - 0.1); y >= head - 1; y--) {
-    const t = tile(G.world, cx, y);
-    if (t === T.LADDER) continue;
-    if ((t === T.AIR || t === T.WATER) && canPlace(G.world, cx, y, T.LADDER, p)) {
-      if (!useWood(G.s, LADDER_WOOD)) {
-        if (!G.warnedStock) { G.warnedStock = true; toast('나무가 없습니다. 작은 나무를 [손]으로 베세요', 'bad'); }
-        return;
-      }
-      setTile(G.world, cx, y, T.LADDER);
-      sfx.place();
-      G.autoLadderT = 0.12;
-    }
-    return;
-  }
+function inputDir() {
+  let x = joy.x, y = joy.y;
+  if (keys.has('ArrowLeft') || keys.has('a')) x -= 1;
+  if (keys.has('ArrowRight') || keys.has('d')) x += 1;
+  if (keys.has('ArrowUp') || keys.has('w') || keys.has(' ')) y -= 1;
+  if (keys.has('ArrowDown') || keys.has('s')) y += 1;
+  const m = Math.hypot(x, y);
+  return m > 1 ? { x: x / m, y: y / m } : { x, y };
 }
 
 function updatePlayer(dt) {
   const p = G.player, s = G.s;
-  const left = pad.left || keys.has('ArrowLeft') || keys.has('a');
-  const right = pad.right || keys.has('ArrowRight') || keys.has('d');
-  const up = pad.up || keys.has('ArrowUp') || keys.has('w') || keys.has(' ');
-  const down = pad.down || keys.has('ArrowDown') || keys.has('s');
-  const upPressed = up && !upWas;
-  upWas = up;
-  const water = inWater(p);
-  if (water && !p.wasWater && p.vy > 3) { sfx.splash(); burst(p.x + p.w / 2, p.y + p.h * 0.6, '#cfe8f3', 10, { speed: 4, up: 4 }); }
-  p.wasWater = water;
-  const ladder = ladderAt(p);
-  let speed = isOverweight(s) ? 3.2 : 5.5;
-  if (water) speed = Math.min(speed, 2.6);
-  const busy = G.gauge || G.chop;
-  const dir = busy ? 0 : (right ? 1 : 0) - (left ? 1 : 0);
-  const target = dir * (p.climbing ? 2.5 : speed);
-  p.vx = lerp(p.vx, target, clamp(dt * (p.onGround ? 22 : 10), 0, 1));
-  if (Math.abs(p.vx) < 0.05) p.vx = 0;
-  if (dir) p.face = dir;
-
-  if (G.mode === 'ladder' && up) autoLadder(p, dt);
-  if ((ladder || ladderAt(p)) && (up || down)) p.climbing = true;
-  if (!ladder) p.climbing = false;
-  if (p.onGround && down && !ladder && isPlatform(Math.floor(p.x + p.w / 2), Math.floor(p.y + p.h + 0.05))) {
-    p.dropping = true;
-    p.dropT = 0.25;
-  }
-  if (p.dropT > 0) { p.dropT -= dt; if (p.dropT <= 0) p.dropping = false; }
-  if (p.climbing) {
-    p.dropping = down;
-    p.vy = up ? -4.5 : down ? 4.5 : 0;
-    // 꼭대기에 닿으면 턱 위로 올라선다
-    const cx = Math.floor(p.x + p.w / 2);
-    if (up && tile(G.world, cx, Math.floor(p.y + p.h - 0.6)) !== T.LADDER && tile(G.world, cx, Math.floor(p.y + p.h - 0.1)) === T.LADDER) {
-      p.y = Math.floor(p.y + p.h - 0.1) - p.h - 0.001;
-      p.vy = 0;
-      p.climbing = false;
-      p.onGround = true;
-    }
-  } else if (water) {
-    p.vy = Math.min(p.vy + 10 * dt, 3);
-    if (up) p.vy = -5;
+  const busy = G.gauge || G.mine;
+  const d = busy ? { x: 0, y: 0 } : inputDir();
+  const c = playerCenter();
+  const speed = swimSpeed(s);
+  if (c.y < SEA - 0.1) {
+    // 물 위: 떨어진다
+    p.vx = lerp(p.vx, d.x * speed * 0.6, clamp(dt * 4, 0, 1));
+    p.vy = Math.min(p.vy + 22 * dt, 12);
   } else {
-    p.vy = Math.min(p.vy + 34 * dt, 18);
+    p.vx = lerp(p.vx, d.x * speed, clamp(dt * 3.5, 0, 1));
+    p.vy = lerp(p.vy, d.y * speed, clamp(dt * 3.5, 0, 1));
+    if (c.y < SEA + 0.4 && p.vy < 0) p.vy = Math.max(p.vy, (SEA - 0.35 - c.y) * 6); // 수면에서 둥실
+    if (!d.x && !d.y) p.vy += Math.sin(G.clock * 2) * 0.04;
   }
-  p.coyote = p.onGround ? 0.1 : p.coyote - dt;
-  p.jumpBuf = upPressed ? 0.12 : p.jumpBuf - dt;
-  if (!p.climbing && !water && p.jumpBuf > 0 && p.coyote > 0 && !ladder) {
-    p.vy = -12.5;
-    p.jumpBuf = 0;
-    p.coyote = 0;
-    sfx.jump();
-  }
-  if (!up && p.vy < -5 && !p.climbing && !water) p.vy = -5; // 짧게 누르면 낮게 뛴다
-  const wasGround = p.onGround;
-  const fallV = p.vy;
-  moveBody(p, dt, { autoStep: true, platforms: true });
-  if (p.onGround && !wasGround && fallV > 10) { sfx.land(); burst(p.x + p.w / 2, p.y + p.h, '#c9b48f', 5, { speed: 2, up: 1, size: 0.1 }); }
-  p.walkT = dir && p.onGround ? p.walkT + dt : 0;
+  moveBody(p, dt);
+  const moving = Math.hypot(p.vx, p.vy) > 0.4;
+  if (Math.abs(p.vx) > 0.2) p.face = p.vx > 0 ? 1 : -1;
+  const targetAng = moving ? Math.atan2(p.vy, Math.abs(p.vx) + 0.001) * 0.7 : 0;
+  p.ang = lerp(p.ang, clamp(targetAng, -1.1, 1.1), clamp(dt * 6, 0, 1));
+  p.kick += dt * (moving ? 9 : 3);
   p.swing = Math.max(0, p.swing - dt);
+  p.cool = Math.max(0, p.cool - dt);
+  // 숨
+  const deep = c.y - SEA;
+  if (deep < 0.6) s.stamina = Math.min(maxStamina(s), s.stamina + 45 * dt);
+  else spendStamina(s, BREATH_PER_SEC * dt * (deep > 60 ? 1.25 : 1));
+  if (deep > 0.6 && Math.random() < dt * (moving ? 3 : 1.2)) bubble(c.x + p.face * 0.4, c.y - 0.3);
+  const low = s.stamina < maxStamina(s) * 0.25;
+  if (low && !G.lowWarned && deep > 0.6) { G.lowWarned = true; sfx.hurt(); toast('숨이 모자랍니다! 수면으로 올라가세요', 'bad'); }
+  if (!low) G.lowWarned = false;
 }
 
 function cursorTile() {
@@ -738,205 +656,190 @@ function cursorTile() {
 function updateHold(dt) {
   const h = G.hold;
   if (h && G.aim) { const wp = screenToWorld(h.sx, h.sy); G.aim.x = wp.x; G.aim.y = wp.y; }
-  if (G.chop) {
-    const c = G.chop;
-    c.t += dt;
-    G.player.swing = 0.2;
-    if (Math.random() < dt * 8) burst(c.prop.x + 0.5, c.prop.y - 0.5, '#5f8f48', 1, { speed: 2, grav: 6, life: 0.8 });
-    if (c.t >= c.dur) {
-      removeProp(c.prop);
-      for (let i = 0; i < 3; i++) addItem(G.s, 'wood');
-      floatText('나무 +3', c.prop.x + 0.5, c.prop.y - 1);
-      flyIcon('wood', c.prop.x + 0.5, c.prop.y - 0.5);
-      sfx.breakDirt();
-      burst(c.prop.x + 0.5, c.prop.y - 1, '#5f8f48', 14, { speed: 4 });
-      spendStamina(G.s, 2);
-      G.chop = null;
-    }
-  }
-  if (!h || G.mode === 'hand' || G.mode === 'bow') return;
+  if (!h || G.mode !== 'shovel') return;
   const c = cursorTile();
-  if (G.mode === 'hoe') {
-    if (!canDig(G.world, c.x, c.y) || !inReach(c.x, c.y)) { G.mine = null; return; }
-    if (!G.mine || G.mine.x !== c.x || G.mine.y !== c.y) G.mine = { x: c.x, y: c.y, t: 0, need: digHardness(G.s, tile(G.world, c.x, c.y)), tick: 0 };
-    const m = G.mine;
-    m.t += dt;
-    m.tick -= dt;
-    G.player.swing = 0.2;
-    G.player.face = c.x + 0.5 > playerCenter().x ? 1 : -1;
-    if (m.tick <= 0) { sfx.chip(); m.tick = 0.14; burst(c.x + 0.5, c.y + 0.5, '#8a6340', 2, { speed: 2, size: 0.1 }); }
-    if (m.t >= m.need) { breakTile(c.x, c.y); G.mine = null; }
-    return;
-  }
-  const chk = placeCheck(c.x, c.y);
-  if (!chk.ok) {
-    if (chk.why === 'stock' && !G.warnedStock) { G.warnedStock = true; toast(G.mode === 'dirt' ? '흙덩이가 없습니다. [괭이]로 흙을 파면 생깁니다' : '나무가 없습니다. 작은 나무를 [손]으로 베세요', 'bad'); }
-    return;
-  }
-  if (PLACE_COST[G.mode]()) {
-    setTile(G.world, c.x, c.y, PLACE_TILE[G.mode]);
-    sfx.place();
-    burst(c.x + 0.5, c.y + 0.5, G.mode === 'dirt' ? '#7a5534' : '#b07a46', 4, { speed: 2, size: 0.1 });
-    G.player.swing = 0.2;
-  }
+  if (!canDig(G.world, c.x, c.y) || !inReach(c.x, c.y)) { G.mine = null; return; }
+  if (!G.mine || G.mine.x !== c.x || G.mine.y !== c.y) G.mine = { x: c.x, y: c.y, t: 0, need: digHardness(G.s, tile(G.world, c.x, c.y)), tick: 0 };
+  const m = G.mine;
+  m.t += dt;
+  m.tick -= dt;
+  G.player.swing = 0.2;
+  G.player.face = c.x + 0.5 > playerCenter().x ? 1 : -1;
+  if (m.tick <= 0) { sfx.chip(); m.tick = 0.14; burst(c.x + 0.5, c.y + 0.5, '#d9c58f', 2, { speed: 1.5, size: 0.1 }); }
+  if (m.t >= m.need) { breakTile(c.x, c.y); G.mine = null; }
 }
 
-function updateArrows(dt) {
-  for (const a of G.arrows) {
-    if (a.stuck) { a.life -= dt; continue; }
-    a.vy += arrowGravity() * dt;
-    for (let i = 0; i < 3 && !a.stuck && a.life > 0; i++) {
-      a.x += (a.vx * dt) / 3;
-      a.y += (a.vy * dt) / 3;
-      if (arrowHits(a)) { a.life = 0; break; }
-      if (isSolid(G.world, Math.floor(a.x), Math.floor(a.y))) { a.stuck = true; a.life = 0.8; sfx.chip(); }
+function updateShots(dt) {
+  const s = G.s;
+  for (const a of G.shots) {
+    const c = playerCenter();
+    if (a.back) {
+      const dx = c.x - a.x, dy = c.y - a.y, len = Math.hypot(dx, dy);
+      if (len < 0.6) { a.dead = true; continue; }
+      a.x += (dx / len) * 30 * dt;
+      a.y += (dy / len) * 30 * dt;
+      continue;
     }
     a.life -= dt;
-    if (a.x < 0 || a.x > W || a.y > H) a.life = 0;
+    for (let i = 0; i < 3; i++) {
+      a.x += (a.vx * dt) / 3;
+      a.y += (a.vy * dt) / 3;
+      if (isSolid(G.world, Math.floor(a.x), Math.floor(a.y))) { a.life = 0; sfx.chip(); burst(a.x, a.y, '#d9c58f', 4, { speed: 1.5 }); break; }
+      const hit = shotHits(a);
+      if (hit) { a.life = 0; break; }
+    }
+    if (a.life <= 0) { if (a.mode === 'harpoon') a.back = true; else a.dead = true; }
   }
-  G.arrows = G.arrows.filter((a) => a.life > 0);
+  G.shots = G.shots.filter((a) => !a.dead);
 }
 
-function arrowHits(a) {
-  const hive = G.props.find((p) => p.type === 'beehive' && a.x >= p.x - 0.1 && a.x <= p.x + 1.1 && a.y >= p.y - 0.2 && a.y <= p.y + 1.2);
-  if (hive) {
-    removeProp(hive);
-    G.ents.push({ type: 'hive', x: hive.x, y: hive.y, w: 0.9, h: 1, vx: 0, vy: 0 });
-    sfx.hit();
-    toast('벌집이 떨어진다! 벌이 쫓아오면 개울로 피하세요', 'bad');
-    return true;
-  }
+function shotHits(a) {
+  const s = G.s;
   for (const e of G.ents) {
-    if (!['rabbit', 'whiteRabbit', 'pheasant'].includes(e.type) || e.dead) continue;
-    if (a.x < e.x || a.x > e.x + e.w || a.y < e.y - 0.15 || a.y > e.y + e.h + 0.1) continue;
-    const net = a.type === 'net';
-    if (e.type === 'whiteRabbit' && !net) {
-      e.flee = 3;
-      floatText('빗나감! 그물로만', e.x, e.y - 0.5, '#ffb0a0');
-      return false;
+    if (e.dead || e.type === 'jelly') continue;
+    const pad = a.mode === 'net' ? 0.5 : 0.1;
+    if (a.x < e.x - pad || a.x > e.x + e.w + pad || a.y < e.y - pad || a.y > e.y + e.h + pad) continue;
+    const f = FISH[e.type];
+    if (a.mode === 'net') {
+      if (!f.small) { floatText('그물로는 무리다!', e.x, e.y - 0.4, '#ffb0a0'); return true; }
+      // 그물은 근처 작은 물고기를 한꺼번에 잡는다
+      const caught = G.ents.filter((o) => !o.dead && FISH[o.type]?.small && Math.hypot(o.x - e.x, o.y - e.y) < 1.6);
+      for (const o of caught) { o.dead = true; gain(FISH[o.type].item, true, o.x, o.y); }
+      sfx.hit();
+      burst(e.x + e.w / 2, e.y + e.h / 2, '#e9e1cc', 10, { speed: 2 });
+      return true;
     }
-    e.dead = true;
+    if (f.netOnly) { floatText('해마는 그물로만!', e.x, e.y - 0.4, '#ffb0a0'); return true; }
+    e.hp -= harpoonDamage(s);
+    e.hitT = 0.25;
     sfx.hit();
-    burst(e.x + e.w / 2, e.y + e.h / 2, net ? '#e8eef2' : '#c9a26c', 10, { speed: 3 });
-    if (e.type === 'pheasant') {
-      gain('pheasantFat', net, e.x, e.y);
-      addItem(G.s, 'feather', false);
-      G.dayLog.feather = (G.dayLog.feather ?? 0) + 1;
-    } else gain(e.type === 'whiteRabbit' ? 'whiteFur' : 'rabbitFur', net, e.x, e.y);
+    burst(e.x + e.w / 2, e.y + e.h / 2, '#e9e1cc', 6, { speed: 2 });
+    if (e.type === 'moray') { e.lunge = 0; e.cool = 4; if (e.hp <= 0) { e.hp = 2; floatText('곰치가 숨었다', e.x, e.y - 0.4); } return true; }
+    if (e.type === 'shark') {
+      e.cool = 2.5;
+      if (e.hp <= 0) {
+        e.dead = true;
+        floatText('상어가 달아났다!', e.x + 1, e.y - 0.5, '#ffd76a');
+        G.ents.push({ type: 'drop', item: 'sharkTooth', x: e.x + 1, y: e.y, w: 0.5, h: 0.5, vx: 0, vy: 0 });
+        G.shake = 0.3;
+      } else floatText(`${e.hp}`, e.x + 1.5, e.y - 0.4, '#ffb0a0');
+      return true;
+    }
+    if (e.hp <= 0) { e.dead = true; gain(f.item, false, e.x, e.y); } else e.flee = 2;
     return true;
   }
   return false;
 }
 
+function hurt(n, why, from) {
+  if (G.hurtT > 0) return;
+  G.hurtT = 1.2;
+  spendStamina(G.s, n);
+  sfx.hurt();
+  G.shake = 0.3;
+  const c = playerCenter();
+  floatText(`숨 -${n}`, c.x, c.y - 1.1, '#ff9c8a');
+  toast(why, 'bad');
+  if (from) {
+    const dx = c.x - from.x, dy = c.y - from.y, len = Math.hypot(dx, dy) || 1;
+    G.player.vx = (dx / len) * 8;
+    G.player.vy = (dy / len) * 8;
+  }
+}
+
+function swimToward(e, tx, ty, sp, dt) {
+  const dx = tx - e.x, dy = ty - e.y, len = Math.hypot(dx, dy) || 1;
+  e.vx = lerp(e.vx, (dx / len) * sp, clamp(dt * 2.5, 0, 1));
+  e.vy = lerp(e.vy, (dy / len) * sp, clamp(dt * 2.5, 0, 1));
+}
+
 function updateEnts(dt) {
   const pc = playerCenter();
+  const p = G.player;
   for (const e of G.ents) {
     if (e.dead) continue;
-    if (e.type === 'rabbit' || e.type === 'whiteRabbit') updateRabbit(e, dt, pc);
-    else if (e.type === 'pheasant') updatePheasant(e, dt, pc);
-    else if (e.type === 'hive') {
-      e.vy = Math.min(e.vy + 30 * dt, 18);
+    e.t -= dt;
+    e.hitT = Math.max(0, (e.hitT ?? 0) - dt);
+    const ec = { x: e.x + e.w / 2, y: e.y + e.h / 2 };
+    const d = Math.hypot(ec.x - pc.x, ec.y - pc.y);
+    const f = FISH[e.type];
+    if (e.type === 'drop') {
+      e.vy = Math.min(e.vy + 3 * dt, 1.5);
       moveBody(e, dt);
-      if (e.onGround) {
-        e.dead = true;
-        sfx.breakPot();
-        burst(e.x + 0.45, e.y + 0.5, '#d4a94a', 12);
-        for (let i = 0; i < 2; i++) G.ents.push({ type: 'drop', item: 'honey', x: e.x + i * 0.5 - 0.2, y: e.y, w: 0.6, h: 0.6, vx: 0, vy: -4 });
-        G.ents.push({ type: 'bees', x: e.x, y: e.y - 0.5, w: 0.9, h: 0.9, t: 10 });
+      if (d < 1) { if (gain(e.item, false, e.x, e.y)) e.dead = true; }
+      continue;
+    }
+    if (e.type === 'jelly') {
+      e.vx = Math.sin(G.clock * 0.3 + e.home.x) * 0.3;
+      e.vy = Math.sin(G.clock * 1.2 + e.home.y) * 0.6;
+      if (d < 0.8) hurt(8, '해파리에 쏘였다!', ec);
+    } else if (e.type === 'moray') {
+      e.cool = Math.max(0, e.cool - dt);
+      if (d < 2.4 && e.cool <= 0) e.lunge = Math.min(1, e.lunge + dt * 5); else e.lunge = Math.max(0, e.lunge - dt * 2);
+      e.face = pc.x > ec.x ? 1 : -1;
+      if (e.lunge > 0.8 && d < 1.6) { hurt(12, '곰치에게 물렸다!', ec); e.cool = 3; }
+      continue;
+    } else if (e.type === 'shark') {
+      e.cool = Math.max(0, e.cool - dt);
+      const chase = d < 8 && pc.y > 50 && e.cool <= 0;
+      if (chase) swimToward(e, pc.x - e.w / 2, pc.y - e.h / 2, 4.2, dt);
+      else if (e.cool > 0) swimToward(e, ec.x + (ec.x - pc.x) * 3, ec.y, 3, dt);
+      else {
+        if (e.t < 0) { e.t = 3 + Math.random() * 3; e.tx = 98 + Math.random() * 36; e.ty = 66 + Math.random() * 34; }
+        swimToward(e, e.tx ?? e.home.x, e.ty ?? e.home.y, f.speed, dt);
       }
-    } else if (e.type === 'drop') {
-      e.vy = Math.min(e.vy + 30 * dt, 18);
-      moveBody(e, dt, { platforms: true });
-      const p = G.player;
-      if (e.x < p.x + p.w + 0.3 && e.x + e.w > p.x - 0.3 && e.y < p.y + p.h && e.y + e.h > p.y) {
-        if (gain(e.item, false, e.x, e.y)) e.dead = true;
+      if (d < 1.4 && e.cool <= 0) { hurt(25, '상어에게 물렸다!', ec); e.cool = 3; }
+    } else {
+      // 보통 물고기: 떠돌다 화타가 다가오면 달아난다
+      const scared = d < (e.type === 'seahorseFish' ? 0 : e.type === 'rockfishFish' ? 3 : 4.5);
+      if (scared) e.flee = 1.5;
+      if (e.flee > 0) {
+        e.flee -= dt;
+        const sp = e.type === 'cuttlefishFish' ? 7 : f.speed * 1.8;
+        swimToward(e, ec.x + (ec.x - pc.x) * 3, ec.y + (ec.y - pc.y) * 2, sp, dt);
+        if (e.type === 'cuttlefishFish' && !e.inked) {
+          e.inked = 1.5;
+          for (let i = 0; i < 14; i++) G.parts.push({ x: ec.x, y: ec.y, vx: (Math.random() - 0.5) * 2, vy: (Math.random() - 0.5) * 2, life: 1.6, max: 1.6, color: '#1a1420', size: 0.5 + Math.random() * 0.4, grav: 0, drag: 2 });
+        }
+      } else {
+        if (e.inked) { e.inked -= dt; if (e.inked <= 0) e.inked = 0; }
+        if (e.t < 0) {
+          e.t = 2 + Math.random() * 3;
+          const school = e.school !== undefined ? G.ents.find((o) => o.school === e.school && !o.dead) : null;
+          const base = school && school !== e ? { x: school.tx ?? school.x, y: school.ty ?? school.y } : e.home;
+          e.tx = base.x + (Math.random() - 0.5) * 8;
+          e.ty = base.y + (Math.random() - 0.5) * 4;
+        }
+        swimToward(e, e.tx ?? e.home.x, e.ty ?? e.home.y, f.speed * 0.5, dt);
       }
-    } else if (e.type === 'bees') updateBees(e, dt, pc);
+    }
+    moveBody(e, dt);
+    if (ec.y + e.vy * dt < SEA + 1) e.vy = Math.abs(e.vy);
+    if (e.hitWall) { e.t = 0; }
+    if (Math.abs(e.vx) > 0.1) e.face = e.vx > 0 ? 1 : -1;
   }
   G.ents = G.ents.filter((e) => !e.dead);
-}
-
-function updateRabbit(r, dt, pc) {
-  const d = Math.hypot(r.x - pc.x, r.y - pc.y);
-  if (d < 6) r.flee = 2.5;
-  r.t -= dt;
-  r.hop -= dt;
-  if (r.flee > 0) {
-    r.flee -= dt;
-    r.zig -= dt;
-    if (r.zig < 0) { r.zig = 0.4 + Math.random() * 0.7; r.zdir = Math.random() < 0.3 ? -1 : 1; }
-    const away = r.x + r.w / 2 > pc.x ? 1 : -1;
-    r.vx = away * r.zdir * 6;
-    if (r.onGround && r.hop < 0) { r.vy = -6.5; r.hop = 0.35; }
-  } else if (r.t < 0) {
-    r.t = 1 + Math.random() * 2;
-    r.vx = [-1.5, 0, 0, 1.5][Math.floor(Math.random() * 4)];
-  }
-  if (r.x < r.home[0]) r.vx = Math.abs(r.vx) || 1;
-  if (r.x > r.home[1]) r.vx = -Math.abs(r.vx) || -1;
-  r.vy = Math.min(r.vy + 30 * dt, 18);
-  moveBody(r, dt);
-  if (r.hitWall && r.onGround) r.vy = -7;
-  r.face = r.vx > 0 ? 1 : r.vx < 0 ? -1 : r.face ?? 1;
-}
-
-function updatePheasant(b, dt, pc) {
-  const d = Math.hypot(b.x - pc.x, b.y - pc.y);
-  if (b.state === 'hide') {
-    if (d < 3.5) {
-      b.state = 'fly';
-      b.vx = b.x > pc.x ? 7 : -7;
-      b.vy = -5;
-      floatText('푸드덕!', b.x, b.y - 0.4);
-      burst(b.x + 0.5, b.y + 0.5, '#8a5a2e', 6, { speed: 3, grav: 4 });
-    }
-    return;
-  }
-  b.vy = Math.max(b.vy + 2 * dt, -5);
-  b.x += b.vx * dt;
-  b.y += b.vy * dt;
-  b.face = b.vx > 0 ? 1 : -1;
-  if (b.y < 2 || b.x < -5 || b.x > W + 5 || Math.abs(b.x - pc.x) > 40) b.dead = true;
-}
-
-function updateBees(b, dt, pc) {
-  b.t -= dt;
-  const dx = pc.x - (b.x + 0.45), dy = pc.y - 0.4 - (b.y + 0.45);
-  const len = Math.hypot(dx, dy) || 1;
-  b.x += (dx / len) * 4.3 * dt;
-  b.y += (dy / len) * 4.3 * dt;
-  if (inWater(G.player)) { b.dead = true; toast('물속으로 피했다! 벌이 흩어졌다', 'good'); return; }
-  if (len < 0.8) {
-    b.dead = true;
-    spendStamina(G.s, 15);
-    sfx.hurt();
-    toast('벌에 쏘였다! 기력 -15', 'bad');
-    floatText('-15', pc.x, pc.y - 1.2, '#ff9c8a');
-    G.shake = 0.3;
-    return;
-  }
-  if (b.t < 0) b.dead = true;
+  G.hurtT = Math.max(0, G.hurtT - dt);
 }
 
 function updateParts(dt) {
   for (const q of G.parts) {
     q.life -= dt;
+    q.vx -= q.vx * q.drag * dt;
+    q.vy -= q.vy * q.drag * dt;
     q.vy += q.grav * dt;
     q.x += q.vx * dt;
     q.y += q.vy * dt;
-    if (q.grav > 0 && isSolid(G.world, Math.floor(q.x), Math.floor(q.y))) { q.vy *= -0.3; q.vx *= 0.6; q.y -= 0.05; }
   }
   G.parts = G.parts.filter((q) => q.life > 0);
   if (G.parts.length > 300) G.parts.splice(0, G.parts.length - 300);
+  for (const b of G.bubbles) { b.t += dt; b.y -= dt * (1.2 + b.r * 6); b.x += Math.sin(b.t * 5 + b.wob) * dt * 0.3; }
+  G.bubbles = G.bubbles.filter((b) => b.y > SEA && b.t < 6 && isWater(G.world, Math.floor(b.x), Math.floor(b.y)));
+  if (G.bubbles.length > 160) G.bubbles.splice(0, G.bubbles.length - 160);
   for (const f of G.flyers) f.t += dt * 1.8;
   G.flyers = G.flyers.filter((f) => f.t < 1);
   for (const f of G.floats) { f.t -= dt; f.y -= dt * 0.8; }
   G.floats = G.floats.filter((f) => f.t > 0);
-}
-
-function zoneAt(x) {
-  for (const [k, [a, b]] of Object.entries(ZONES)) if (k !== 'log' && x >= a && x <= b) return k;
-  return 'forest';
 }
 
 function updateDay(dt) {
@@ -945,15 +848,15 @@ function updateDay(dt) {
   updatePlayer(dt);
   updateHold(dt);
   if (G.gauge) G.gauge.t = Math.min(G.gauge.t + dt, G.gauge.dur * 1.25);
-  updateArrows(dt);
+  updateShots(dt);
   updateEnts(dt);
   updateParts(dt);
   G.shake = Math.max(0, (G.shake ?? 0) - dt);
-  const z = zoneAt(Math.floor(G.player.x));
+  const z = zoneAt(Math.floor(playerCenter().x));
   if (z !== G.zone) { G.zone = z; toast(ZONE_NAMES[z]); }
-  if (G.s.stamina <= 0) return endDay('tired');
+  if (G.s.stamina <= 0) return endDay('faint');
   if (G.time >= DAY_SECONDS) return endDay('dark');
-  if (!G.warned && G.time >= DAY_SECONDS - 30) { G.warned = true; sfx.bell(); toast('노을이 진다. 서둘러 돌아가자!', 'bad'); }
+  if (!G.warned && G.time >= DAY_SECONDS - 30) { G.warned = true; sfx.bell(); toast('해가 기운다. 배로 돌아가자!', 'bad'); }
 }
 
 // ---------- 그리기 ----------
@@ -989,220 +892,194 @@ function hash(x, y) {
   return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
 }
 
-const TILE_COL = {
-  [T.DIRT]: ['#7a5534', '#6a4729', '#8a6340', '#4d331d'],
-  [T.GRASS]: ['#7a5534', '#6a4729', '#8a6340', '#4d331d'],
-  [T.STONE]: ['#6f7079', '#5d5e67', '#83848c', '#46474f'],
-  [T.ROOT]: ['#7a5534', '#6a4729', '#8a6340', '#4d331d'],
-  [T.POT]: ['#7a5534', '#6a4729', '#8a6340', '#4d331d'],
-};
-
-const openAt = (x, y) => !isSolid(G.world, x, y);
-
-function drawTile(t, x, y, sx, sy, ts) {
-  const px = ts / 8;
-  if (t === T.WATER) {
-    ctx.fillStyle = 'rgba(64,124,170,0.62)';
-    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
-    if (tile(G.world, x, y - 1) !== T.WATER) {
-      ctx.fillStyle = 'rgba(210,235,245,0.75)';
-      const w = Math.sin(G.clock * 3 + x) * px * 0.6;
-      ctx.fillRect(sx, sy + px * 0.6 + w, ts + 0.5, px * 0.7);
-    }
-    return;
-  }
-  if (t === T.LADDER) {
-    ctx.fillStyle = '#7a522a';
-    ctx.fillRect(sx + px, sy, px * 1.2, ts + 0.5);
-    ctx.fillRect(sx + ts - px * 2.2, sy, px * 1.2, ts + 0.5);
-    ctx.fillStyle = '#b07a46';
-    for (let i = 0; i < 2; i++) ctx.fillRect(sx + px, sy + ts * (0.2 + i * 0.5), ts - px * 2, px);
-    return;
-  }
-  if (t === T.PLANK) {
-    ctx.fillStyle = '#b07a46';
-    ctx.fillRect(sx, sy, ts + 0.5, px * 2.4);
-    ctx.fillStyle = '#7a522a';
-    ctx.fillRect(sx, sy + px * 2.4, ts + 0.5, px * 0.8);
-    ctx.fillRect(sx + px, sy + px * 3.2, px, px * 2);
-    ctx.fillRect(sx + ts - px * 2, sy + px * 3.2, px, px * 2);
-    return;
-  }
-  if (t === T.LOG) {
-    ctx.fillStyle = '#5b3d22';
-    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
-    ctx.fillStyle = '#704b2b';
-    ctx.fillRect(sx, sy + ts * (0.2 + 0.4 * hash(x, y)), ts + 0.5, px);
-    if (x === ZONES.log[0]) {
-      ctx.fillStyle = '#c9a26c';
-      ctx.fillRect(sx, sy + px, px * 2, ts - px * 2);
-    }
-    return;
-  }
-  const cols = TILE_COL[t];
-  ctx.fillStyle = cols[0];
-  ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
-  for (let i = 0; i < 4; i++) {
-    const h = hash(x * 7 + i, y * 13 - i);
-    ctx.fillStyle = cols[1 + (i % 2)];
-    ctx.fillRect(sx + Math.floor(h * 7) * px, sy + Math.floor(hash(y + i, x - i) * 7) * px, px * 2, px);
-  }
-  // 바깥으로 드러난 모서리는 짙게
-  ctx.fillStyle = cols[3];
-  if (openAt(x - 1, y)) ctx.fillRect(sx, sy, px, ts + 0.5);
-  if (openAt(x + 1, y)) ctx.fillRect(sx + ts - px, sy, px, ts + 0.5);
-  if (openAt(x, y + 1)) ctx.fillRect(sx, sy + ts - px, ts + 0.5, px);
-  if (t === T.GRASS && openAt(x, y - 1) && tile(G.world, x, y - 1) !== T.WATER) {
-    ctx.fillStyle = '#5f9a45';
-    ctx.fillRect(sx, sy, ts + 0.5, px * 2.2);
-    ctx.fillStyle = '#7dbb59';
-    ctx.fillRect(sx, sy, ts + 0.5, px);
-    if (openAt(x - 1, y)) ctx.fillRect(sx, sy, px, px * 3);
-    if (openAt(x + 1, y)) ctx.fillRect(sx + ts - px, sy, px, px * 3);
-  } else if (openAt(x, y - 1)) {
-    ctx.fillStyle = cols[2];
-    ctx.fillRect(sx, sy, ts + 0.5, px * 0.8);
-  }
-  if (t === T.ROOT) {
-    const p = G.props.find((q) => q.x === x && q.y === y);
-    if (p && isExposed(G.world, x, y)) drawSprite(ctx, p.type === 'kudzu' ? 'kudzuRoot' : 'bellflowerRoot', sx, sy, px);
-  }
-  if (t === T.POT) drawSprite(ctx, 'pot', sx - px * 0.5, sy - px * 0.5, px);
-}
-
-const CLOUDS = Array.from({ length: 9 }, (_, i) => ({ x: i * 29 + hash(i, 1) * 20, y: 5 + hash(i, 2) * 9, w: 4 + hash(i, 3) * 5 }));
+const CLOUDS = Array.from({ length: 7 }, (_, i) => ({ x: i * 26 + hash(i, 1) * 20, y: 1 + hash(i, 2) * 4, w: 4 + hash(i, 3) * 5 }));
 
 function drawBackground(f) {
   const { cw, ch, ts } = view;
-  const [top, bottom] = skyAt(f);
-  const grad = ctx.createLinearGradient(0, 0, 0, ch);
-  grad.addColorStop(0, top);
-  grad.addColorStop(1, bottom);
-  ctx.fillStyle = grad;
-  ctx.fillRect(0, 0, cw, ch);
-  const sunX = cw * (0.1 + 0.8 * f), sunY = ch * (0.3 - Math.sin(Math.PI * f) * 0.2);
-  ctx.fillStyle = f > 0.85 ? 'rgba(255,176,112,0.35)' : 'rgba(255,241,196,0.35)';
-  ctx.beginPath(); ctx.arc(sunX, sunY, ts * 1.6, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = f > 0.85 ? '#ffb070' : '#fff1c4';
-  ctx.beginPath(); ctx.arc(sunX, sunY, ts * 0.9, 0, Math.PI * 2); ctx.fill();
-  // 구름
-  ctx.fillStyle = f > 0.85 ? 'rgba(255,214,190,0.75)' : 'rgba(255,255,255,0.78)';
-  for (const c of CLOUDS) {
-    const x = ((c.x + G.clock * 0.25 - G.cam.x * 0.5) % 270 + 270) % 270 - 15;
-    const sx = x * ts * 0.6, sy = (c.y - G.cam.y * 0.15) * ts * 0.6;
-    const r = c.w * ts * 0.18;
-    ctx.beginPath();
-    ctx.arc(sx, sy, r, 0, Math.PI * 2);
-    ctx.arc(sx + r * 1.1, sy - r * 0.35, r * 1.15, 0, Math.PI * 2);
-    ctx.arc(sx + r * 2.2, sy, r * 0.9, 0, Math.PI * 2);
-    ctx.fill();
-  }
-  const layers = [[0.15, 'rgba(92,110,138,0.45)', 9, 0.5], [0.35, 'rgba(70,96,98,0.55)', 6, 0.62]];
-  for (const [par, col, amp, base] of layers) {
-    ctx.fillStyle = col;
-    ctx.beginPath();
-    ctx.moveTo(0, ch);
-    for (let sx = 0; sx <= cw + 8; sx += 8) {
-      const wx = (sx / ts + G.cam.x * par) * 0.35;
-      const y = ch * base - (Math.sin(wx * 0.5) + Math.sin(wx * 0.23 + 1.3) * 1.4) * amp * ts * 0.12 - (G.cam.y - 18) * par * ts * 0.4;
-      ctx.lineTo(sx, y);
+  const seaY = (SEA - G.cam.y) * ts;
+  // 하늘
+  if (seaY > 0) {
+    const [top, bottom] = skyAt(f);
+    const grad = ctx.createLinearGradient(0, seaY - ts * 12, 0, seaY);
+    grad.addColorStop(0, top);
+    grad.addColorStop(1, bottom);
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, cw, seaY);
+    const sunX = cw * (0.1 + 0.8 * f), sunY = seaY - ts * (2 + Math.sin(Math.PI * f) * 6);
+    ctx.fillStyle = f > 0.85 ? '#ffb070' : '#fff1c4';
+    ctx.beginPath(); ctx.arc(sunX, sunY, ts * 0.9, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.8)';
+    for (const c of CLOUDS) {
+      const x = ((c.x + G.clock * 0.25 - G.cam.x * 0.4) % 190 + 190) % 190 - 15;
+      const sx = x * ts * 0.6, sy = seaY - (10 - c.y) * ts;
+      const r = c.w * ts * 0.16;
+      ctx.beginPath();
+      ctx.arc(sx, sy, r, 0, Math.PI * 2);
+      ctx.arc(sx + r * 1.1, sy - r * 0.35, r * 1.15, 0, Math.PI * 2);
+      ctx.arc(sx + r * 2.2, sy, r * 0.9, 0, Math.PI * 2);
+      ctx.fill();
     }
-    ctx.lineTo(cw, ch);
-    ctx.fill();
-  }
-}
-
-function drawClinic(ts) {
-  const gy = 30;
-  const sx = (2 - G.cam.x) * ts, sy = (gy - G.cam.y) * ts;
-  const w = 9 * ts;
-  if (sx > view.cw || sx + w < 0) return;
-  ctx.fillStyle = '#c9b48f';
-  ctx.fillRect(sx + ts * 0.3, sy - ts * 0.5, w - ts * 0.6, ts * 0.5);
-  ctx.fillStyle = '#efe4cc';
-  ctx.fillRect(sx + ts * 0.8, sy - ts * 3.6, w - ts * 1.6, ts * 3.1);
-  ctx.fillStyle = '#6b4a2b';
-  for (let i = 0; i < 4; i++) ctx.fillRect(sx + ts * (0.8 + i * 2.3), sy - ts * 3.6, ts * 0.25, ts * 3.1);
-  ctx.fillRect(sx + ts * 0.8, sy - ts * 3.6, w - ts * 1.6, ts * 0.2);
-  ctx.fillStyle = '#d8c7a4';
-  ctx.fillRect(sx + ts * 3.6, sy - ts * 2.6, ts * 1.8, ts * 2.1);
-  ctx.strokeStyle = '#8a6a44';
-  ctx.lineWidth = Math.max(1, ts * 0.06);
-  for (let i = 1; i < 3; i++) {
-    ctx.beginPath(); ctx.moveTo(sx + ts * (3.6 + i * 0.6), sy - ts * 2.6); ctx.lineTo(sx + ts * (3.6 + i * 0.6), sy - ts * 0.5); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(sx + ts * 3.6, sy - ts * (2.6 - i * 0.7)); ctx.lineTo(sx + ts * 5.4, sy - ts * (2.6 - i * 0.7)); ctx.stroke();
-  }
-  // 걸어 둔 약초 다발
-  for (let i = 0; i < 3; i++) {
-    ctx.fillStyle = ['#6f9a55', '#c9a24a', '#8a9a5a'][i];
-    ctx.fillRect(sx + ts * (1.4 + i * 0.6), sy - ts * 2.9, ts * 0.3, ts * 0.8);
-  }
-  ctx.fillStyle = '#3d4352';
-  ctx.beginPath();
-  ctx.moveTo(sx - ts * 0.4, sy - ts * 3.4);
-  ctx.quadraticCurveTo(sx + w / 2, sy - ts * 4.2, sx + w + ts * 0.4, sy - ts * 3.4);
-  ctx.lineTo(sx + w - ts * 1.2, sy - ts * 5.1);
-  ctx.lineTo(sx + ts * 1.2, sy - ts * 5.1);
-  ctx.closePath();
-  ctx.fill();
-  ctx.fillStyle = '#2b303c';
-  ctx.fillRect(sx + ts * 1.2, sy - ts * 5.3, w - ts * 2.4, ts * 0.3);
-  ctx.fillRect(sx + ts * 3.2, sy - ts * 3.45, ts * 2.6, ts * 0.75);
-  ctx.fillStyle = '#e8c766';
-  ctx.font = `${Math.round(ts * 0.5)}px "Song Myung", serif`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('화타 의원', sx + ts * 4.5, sy - ts * 3.07);
-  // 처마 등불
-  const glow = 0.5 + Math.sin(G.clock * 3) * 0.1;
-  ctx.fillStyle = `rgba(255,190,90,${glow})`;
-  ctx.beginPath(); ctx.arc(sx + ts * 7.4, sy - ts * 2.9, ts * 0.32, 0, Math.PI * 2); ctx.fill();
-}
-
-function drawBigTree(ts) {
-  const base = 24;
-  const sx = (BIG_TREE_X - G.cam.x) * ts, sy = (base - G.cam.y) * ts;
-  if (sx < -ts * 8 || sx > view.cw + ts * 8) return;
-  ctx.fillStyle = '#5a3d24';
-  ctx.fillRect(sx - ts * 0.2, sy - ts * 11, ts * 1.4, ts * 11);
-  ctx.fillStyle = '#6e4c2e';
-  ctx.fillRect(sx + ts * 0.1, sy - ts * 11, ts * 0.3, ts * 11);
-  ctx.fillRect(sx + ts * 1, sy - ts * 9, ts * 2.4, ts * 0.4);
-  ctx.fillRect(sx - ts * 2, sy - ts * 10, ts * 2, ts * 0.4);
-  const sway = Math.sin(G.clock * 0.8) * ts * 0.08;
-  const blobs = [[0.5, -13, 4.2], [-2.5, -11.5, 3], [3.5, -11.3, 3.2], [0.5, -10.5, 3.6], [-1, -15, 2.5], [2.5, -14.5, 2.6]];
-  for (const [i, [bx, by, r]] of blobs.entries()) {
-    ctx.fillStyle = i % 2 ? '#3f6e3a' : '#4d7f43';
+    // 먼 섬
+    ctx.fillStyle = 'rgba(70,96,110,0.55)';
     ctx.beginPath();
-    ctx.arc(sx + bx * ts + sway, sy + by * ts, r * ts, 0, Math.PI * 2);
+    ctx.moveTo(0, seaY);
+    for (let sx = 0; sx <= cw + 8; sx += 8) {
+      const wx = (sx / ts + G.cam.x * 0.2) * 0.3;
+      ctx.lineTo(sx, seaY - Math.max(0, Math.sin(wx * 0.4) * 2.2 + Math.sin(wx * 0.17 + 2) * 1.6) * ts * 0.6);
+    }
+    ctx.lineTo(cw, seaY);
     ctx.fill();
+  }
+  // 물속: 깊을수록 짙은 쪽빛
+  const top = Math.max(0, seaY);
+  if (top < ch) {
+    const grad = ctx.createLinearGradient(0, seaY, 0, seaY + 100 * ts);
+    grad.addColorStop(0, '#3e93b8');
+    grad.addColorStop(0.25, '#1f6688');
+    grad.addColorStop(0.6, '#0f3552');
+    grad.addColorStop(1, '#06162a');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, top, cw, ch - top);
+    // 수면에서 비치는 빛줄기
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < 6; i++) {
+      const bx = ((i * 9 + hash(i, 9) * 6 - G.cam.x * 0.6) % 54 + 54) % 54 * ts * 0.5 + Math.sin(G.clock * 0.5 + i) * ts;
+      const g = ctx.createLinearGradient(0, seaY, 0, seaY + ts * 26);
+      g.addColorStop(0, 'rgba(180,230,255,0.13)');
+      g.addColorStop(1, 'rgba(180,230,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath();
+      ctx.moveTo(bx, seaY);
+      ctx.lineTo(bx + ts * 1.6, seaY);
+      ctx.lineTo(bx + ts * 6, seaY + ts * 26);
+      ctx.lineTo(bx + ts * 3, seaY + ts * 26);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+}
+
+function drawTile(t, x, y, sx, sy, ts) {
+  const px = ts / 8;
+  if (t === T.SAND || t === T.CLAM) {
+    ctx.fillStyle = '#c9b07a';
+    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i % 2 ? '#b39a66' : '#dcc690';
+      ctx.fillRect(sx + Math.floor(hash(x * 3 + i, y) * 7) * px, sy + Math.floor(hash(y * 5 - i, x) * 7) * px, px * 2, px);
+    }
+    if (!isSolid(G.world, x, y - 1)) { ctx.fillStyle = '#e6d6a8'; ctx.fillRect(sx, sy, ts + 0.5, px); }
+    return;
+  }
+  if (t === T.ROCK) {
+    ctx.fillStyle = '#4c5a62';
+    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+    for (let i = 0; i < 3; i++) {
+      ctx.fillStyle = i % 2 ? '#3d4950' : '#5c6b73';
+      ctx.fillRect(sx + Math.floor(hash(x * 7 + i, y * 3) * 6) * px, sy + Math.floor(hash(y + i, x * 2) * 6) * px, px * 3, px * 2);
+    }
+    ctx.fillStyle = '#323d43';
+    if (!isSolid(G.world, x - 1, y)) ctx.fillRect(sx, sy, px, ts + 0.5);
+    if (!isSolid(G.world, x + 1, y)) ctx.fillRect(sx + ts - px, sy, px, ts + 0.5);
+    if (!isSolid(G.world, x, y + 1)) ctx.fillRect(sx, sy + ts - px, ts + 0.5, px);
+    if (!isSolid(G.world, x, y - 1) && y > SEA) { ctx.fillStyle = '#5f7a4a'; ctx.fillRect(sx, sy, ts + 0.5, px * 1.5); }
+    return;
+  }
+  if (t === T.CHEST) {
+    ctx.fillStyle = '#c9b07a';
+    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+    drawSprite(ctx, 'chest', sx, sy - px * 2, px);
+    ctx.fillStyle = '#c9b07a';
+    ctx.fillRect(sx, sy + px * 3, ts + 0.5, px * 1.5);
   }
 }
 
 function drawDecor(x0, x1, ts) {
-  // 풀잎과 들꽃이 바람에 흔들린다
   const px = ts / 8;
   for (let x = x0; x <= x1; x++) {
-    const y = surfaceY(G.world, x);
-    if (tile(G.world, x, y) !== T.GRASS || tile(G.world, x, y - 1) !== T.AIR) continue;
+    const y = floorY(G.world, x);
+    if (y <= SEA || !isWater(G.world, x, y - 1)) continue;
     const sx = (x - G.cam.x) * ts, sy = (y - G.cam.y) * ts;
-    const n = 1 + Math.floor(hash(x, 7) * 3);
-    for (let i = 0; i < n; i++) {
-      const bx = sx + (hash(x, i) * 0.8 + 0.1) * ts;
-      const hgt = (2 + hash(i, x) * 3) * px;
-      const sw = Math.sin(G.clock * 2 + x * 0.7 + i) * px * 0.8;
-      ctx.strokeStyle = i % 2 ? '#6aa04f' : '#82c062';
+    // 산호와 바닷풀
+    if (x >= 45 && x <= 136 && hash(x, 41) < 0.35) {
+      const col = ['#e8748a', '#f2a65a', '#c86ad8', '#f0d36a'][Math.floor(hash(x, 42) * 4)];
+      ctx.fillStyle = col;
+      const h = 2 + Math.floor(hash(x, 43) * 4);
+      for (let i = 0; i < h; i++) {
+        const sw = Math.sin(G.clock * 1.5 + x + i) * px * 0.4;
+        ctx.fillRect(sx + px * 3 + sw * i * 0.3, sy - (i + 1) * px * 1.2, px * 2, px * 1.2);
+        if (i % 2) ctx.fillRect(sx + px * (i % 4 ? 1 : 5), sy - (i + 1) * px * 1.2, px * 2, px);
+      }
+    } else if (hash(x, 44) < 0.5) {
+      ctx.strokeStyle = '#4f7a3a';
       ctx.lineWidth = px * 0.8;
-      ctx.beginPath();
-      ctx.moveTo(bx, sy);
-      ctx.lineTo(bx + sw, sy - hgt);
-      ctx.stroke();
+      for (let i = 0; i < 2; i++) {
+        const bx = sx + (0.2 + i * 0.5) * ts;
+        const sw = Math.sin(G.clock * 1.6 + x * 0.7 + i) * px * 1.5;
+        ctx.beginPath(); ctx.moveTo(bx, sy); ctx.quadraticCurveTo(bx + sw, sy - px * 3, bx + sw * 1.5, sy - px * 5); ctx.stroke();
+      }
     }
-    if (x >= 56 && x <= 120 && hash(x, 99) < 0.25) {
-      ctx.fillStyle = ['#f2c94c', '#e9e1f3', '#e88aa0'][Math.floor(hash(x, 5) * 3)];
-      const sw = Math.sin(G.clock * 2 + x) * px;
-      ctx.fillRect(sx + ts * 0.6 + sw - px, sy - px * 5, px * 2, px * 2);
-    }
+  }
+}
+
+function drawShore(ts) {
+  // 바닷가 모래사장 위의 작은 한의원
+  const sx = (0 - G.cam.x) * ts, sy = (7 - G.cam.y) * ts;
+  if (sx > view.cw) return;
+  ctx.fillStyle = '#efe4cc';
+  ctx.fillRect(sx + ts * 0.3, sy - ts * 2.6, ts * 3.6, ts * 2.6);
+  ctx.fillStyle = '#6b4a2b';
+  ctx.fillRect(sx + ts * 0.3, sy - ts * 2.6, ts * 3.6, ts * 0.2);
+  ctx.fillRect(sx + ts * 1.6, sy - ts * 1.8, ts * 1, ts * 1.8);
+  ctx.fillStyle = '#3d4352';
+  ctx.beginPath();
+  ctx.moveTo(sx - ts * 0.3, sy - ts * 2.4);
+  ctx.quadraticCurveTo(sx + ts * 2.1, sy - ts * 3, sx + ts * 4.6, sy - ts * 2.4);
+  ctx.lineTo(sx + ts * 3.8, sy - ts * 3.7);
+  ctx.lineTo(sx + ts * 0.4, sy - ts * 3.7);
+  ctx.closePath();
+  ctx.fill();
+}
+
+function drawBoat(ts) {
+  const sx = (BOAT_X - G.cam.x) * ts, sy = (SEA - G.cam.y) * ts + Math.sin(G.clock * 1.5) * ts * 0.08;
+  if (sx > view.cw + ts * 8 || sx < -ts * 8) return;
+  ctx.fillStyle = '#6b4a2b';
+  ctx.beginPath();
+  ctx.moveTo(sx - ts * 0.3, sy - ts * 0.9);
+  ctx.lineTo(sx + ts * 6.3, sy - ts * 0.9);
+  ctx.lineTo(sx + ts * 5.4, sy + ts * 0.35);
+  ctx.lineTo(sx + ts * 0.6, sy + ts * 0.35);
+  ctx.closePath();
+  ctx.fill();
+  ctx.fillStyle = '#8a5d36';
+  ctx.fillRect(sx - ts * 0.3, sy - ts * 0.95, ts * 6.6, ts * 0.22);
+  ctx.fillStyle = '#5a3d24';
+  ctx.fillRect(sx + ts * 2.9, sy - ts * 4.8, ts * 0.22, ts * 3.9);
+  ctx.fillStyle = '#efe4cc';
+  ctx.beginPath();
+  ctx.moveTo(sx + ts * 3.15, sy - ts * 4.6);
+  ctx.lineTo(sx + ts * 5.2, sy - ts * 1.4);
+  ctx.lineTo(sx + ts * 3.15, sy - ts * 1.3);
+  ctx.closePath();
+  ctx.fill();
+  if (nearBoat() && !G.ended) {
+    ctx.fillStyle = '#ffd76a';
+    ctx.font = `bold ${Math.round(ts * 0.5)}px "Gowun Dodum", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('▼ 배에 오르기', sx + ts * 3, sy - ts * 5.2);
+  }
+}
+
+function drawSurface(ts) {
+  const y = (SEA - G.cam.y) * ts;
+  if (y < -ts || y > view.ch + ts) return;
+  ctx.fillStyle = 'rgba(220,245,255,0.55)';
+  for (let sx = 0; sx < view.cw; sx += 6) {
+    const wy = Math.sin((sx / ts + G.cam.x) * 0.8 + G.clock * 2) * ts * 0.08;
+    ctx.fillRect(sx, y + wy - 1, 6, 2);
   }
 }
 
@@ -1215,58 +1092,61 @@ function render() {
     y: clamp(p.y + p.h / 2 - viewH * 0.45, 0, H - viewH),
   };
   if (!G.cam) G.cam = { ...target };
-  G.cam.x = lerp(G.cam.x, target.x, 0.18);
-  G.cam.y = lerp(G.cam.y, target.y, 0.12);
-  const shake = G.shake > 0 ? (Math.random() - 0.5) * 0.15 : 0;
-  const cam = G.cam;
-  cam.x += shake;
+  G.cam.x = lerp(G.cam.x, target.x, 0.15);
+  G.cam.y = lerp(G.cam.y, target.y, 0.15);
+  const shake = G.shake > 0 ? (Math.random() - 0.5) * 0.2 : 0;
+  G.cam.x += shake;
   const f = clamp(G.time / DAY_SECONDS, 0, 1);
   ctx.imageSmoothingEnabled = false;
   drawBackground(f);
-  drawClinic(ts);
-  drawBigTree(ts);
+  drawShore(ts);
 
-  const x0 = Math.max(0, Math.floor(cam.x) - 1), x1 = Math.min(W - 1, Math.ceil(cam.x + viewW));
-  const y0 = Math.max(0, Math.floor(cam.y) - 1), y1 = Math.min(H - 1, Math.ceil(cam.y + viewH));
+  const x0 = Math.max(0, Math.floor(G.cam.x) - 1), x1 = Math.min(W - 1, Math.ceil(G.cam.x + viewW));
+  const y0 = Math.max(0, Math.floor(G.cam.y) - 1), y1 = Math.min(H - 1, Math.ceil(G.cam.y + viewH));
   for (let x = x0; x <= x1; x++) {
-    const ground = groundTop(x);
     for (let y = y0; y <= y1; y++) {
       const t = tile(G.world, x, y);
-      const sx = (x - cam.x) * ts, sy = (y - cam.y) * ts;
-      if (t === T.AIR || t === T.LADDER || t === T.WATER || t === T.PLANK) {
-        if (y >= ground && t !== T.WATER) { // 파낸 자리: 흙벽
-          ctx.fillStyle = (x + y) % 2 ? '#3b2a1d' : '#38281b';
-          ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
-        }
-        if (t !== T.AIR) drawTile(t, x, y, sx, sy, ts);
-        continue;
-      }
-      drawTile(t, x, y, sx, sy, ts);
+      if (t === T.AIR || t === T.WATER) continue;
+      drawTile(t, x, y, (x - G.cam.x) * ts, (y - G.cam.y) * ts, ts);
     }
   }
   drawDecor(x0, x1, ts);
   drawProps(ts);
   drawEnts(ts);
   drawPlayer(ts);
-  drawArrows(ts);
+  drawShots(ts);
   drawParts(ts);
   drawShade(x0, y0, x1, y1, ts);
+  drawBoat(ts);
+  drawSurface(ts);
   drawOverlays(ts);
-  if (f > 0.82) drawDusk(f);
-  cam.x -= shake;
+  if (f > 0.82) {
+    ctx.fillStyle = `rgba(30,20,50,${(f - 0.82) * 2})`;
+    ctx.fillRect(0, 0, cw, ch);
+  }
+  const low = G.s.stamina / maxStamina(G.s);
+  if (low < 0.25 && playerCenter().y > SEA + 0.6) {
+    const a = (0.25 - low) * 2.4 * (0.7 + Math.sin(G.clock * 6) * 0.3);
+    const g = ctx.createRadialGradient(cw / 2, ch / 2, Math.min(cw, ch) * 0.3, cw / 2, ch / 2, Math.max(cw, ch) * 0.7);
+    g.addColorStop(0, 'rgba(120,0,0,0)');
+    g.addColorStop(1, `rgba(150,20,20,${a})`);
+    ctx.fillStyle = g;
+    ctx.fillRect(0, 0, cw, ch);
+  }
+  G.cam.x -= shake;
 }
 
 function drawShade(x0, y0, x1, y1, ts) {
   const pc = playerCenter();
-  const L = computeLight(G.world, x0, y0, x1, y1, [{ x: pc.x - 0.5, y: pc.y - 0.5, r: 0.75 }]);
+  const L = computeLight(G.world, x0, y0, x1, y1, [{ x: pc.x - 0.5, y: pc.y - 0.5, r: G.s.upgrades.lantern ? 1 : 0.7 }]);
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   if (shadeCvs.width !== w || shadeCvs.height !== h) { shadeCvs.width = w; shadeCvs.height = h; }
   const img = shadeCtx.createImageData(w, h);
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      const a = (1 - L.at(x0 + x, y0 + y)) * 0.93;
+      const a = (1 - L.at(x0 + x, y0 + y)) * 0.92;
       const i = (y * w + x) * 4;
-      img.data[i] = 10; img.data[i + 1] = 7; img.data[i + 2] = 5;
+      img.data[i] = 2; img.data[i + 1] = 8; img.data[i + 2] = 18;
       img.data[i + 3] = Math.round(a * 255);
     }
   }
@@ -1276,140 +1156,139 @@ function drawShade(x0, y0, x1, y1, ts) {
   ctx.imageSmoothingEnabled = false;
 }
 
-function drawDusk(f) {
-  const { cw, ch, ts } = view;
-  ctx.fillStyle = `rgba(30,20,50,${(f - 0.82) * 2})`;
-  ctx.fillRect(0, 0, cw, ch);
-  // 반딧불
-  for (let i = 0; i < 14; i++) {
-    const wx = Math.floor(G.cam.x) + hash(i, 3) * (cw / ts);
-    const wy = G.player.y - 2 + hash(i, 4) * 5;
-    const sx = (wx - G.cam.x + Math.sin(G.clock * 0.7 + i) * 0.8) * ts;
-    const sy = (wy - G.cam.y + Math.cos(G.clock * 0.9 + i * 2) * 0.6) * ts;
-    const a = 0.4 + 0.6 * Math.max(0, Math.sin(G.clock * 2 + i));
-    ctx.fillStyle = `rgba(214,255,140,${a * 0.35})`;
-    ctx.beginPath(); ctx.arc(sx, sy, ts * 0.22, 0, Math.PI * 2); ctx.fill();
-    ctx.fillStyle = `rgba(234,255,180,${a})`;
-    ctx.fillRect(sx - 1.5, sy - 1.5, 3, 3);
-  }
-}
-
-// 처음 지도의 땅 높이(파낸 구멍 뒤에 흙벽을 그리려고)
-const groundCache = [];
-let pristine = null;
-function groundTop(x) {
-  if (groundCache[x] === undefined) groundCache[x] = surfaceY((pristine ??= makeWorld()), x);
-  return groundCache[x];
-}
-
 function drawProps(ts) {
   const px = ts / 8;
   for (const p of G.props) {
     const sx = (p.x - G.cam.x) * ts, sy = (p.y - G.cam.y) * ts;
     if (sx < -ts * 3 || sx > view.cw + ts * 3) continue;
-    if (ROOTS.has(p.type)) {
-      if (tile(G.world, p.x, p.y) !== T.ROOT) continue;
-      const top = surfaceY(G.world, p.x) - 1;
-      if (!isExposed(G.world, p.x, p.y) && top < p.y) drawSprite(ctx, 'sprout', sx + px, (top - G.cam.y) * ts + ts - 4 * px, px);
-      continue;
-    }
     if (p.type === 'npc') {
-      const big = p.sprite === 'zhangfei' ? 1.15 : p.sprite === 'child' ? 0.8 : 1;
-      const q = px * big * 1.125;
-      drawSprite(ctx, p.sprite, sx + ts / 2 - 5 * q, sy + ts - 16 * q, q, true);
-      const bob = Math.sin(G.clock * 4) * px;
+      const big = p.sprite === 'zhangfei' ? 1.15 : p.sprite === 'boy' ? 0.85 : 1;
+      const q = px * big * 1.1;
+      const bob = p.floating ? Math.sin(G.clock * 1.5) * px : 0;
+      if (p.floating) {
+        drawSprite(ctx, 'barrel', sx - px, sy + ts - 5 * px + bob, px * 1.2);
+        drawSprite(ctx, p.sprite, sx + ts / 2 - 5 * q, sy + ts - 15 * q + bob, q, true);
+      } else {
+        drawSprite(ctx, p.sprite, sx + ts / 2 - 5 * q, sy + ts - 16 * q, q, true);
+        if (p.sprite === 'haenyeo') {
+          // 수면의 테왁과 줄
+          const fx = sx + ts * 0.5, fy = (SEA - G.cam.y) * ts;
+          ctx.strokeStyle = 'rgba(233,225,204,0.7)';
+          ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(sx + ts / 2, sy + ts - 16 * q); ctx.stroke();
+          drawSprite(ctx, 'tewak', fx - 3 * px, fy - 3 * px + Math.sin(G.clock * 1.5) * px, px);
+        }
+      }
+      const tb = Math.sin(G.clock * 4) * px;
       ctx.fillStyle = '#ffd76a';
       ctx.strokeStyle = '#2a2118';
       ctx.lineWidth = Math.max(2, px * 0.7);
       ctx.font = `bold ${Math.round(ts * 0.9)}px "Gowun Dodum", sans-serif`;
       ctx.textAlign = 'center';
-      ctx.strokeText('!', sx + ts / 2, sy + ts - 17 * q + bob);
-      ctx.fillText('!', sx + ts / 2, sy + ts - 17 * q + bob);
+      const ty = sy + ts - 17 * q + tb + bob;
+      ctx.strokeText('!', sx + ts / 2, ty);
+      ctx.fillText('!', sx + ts / 2, ty);
       continue;
     }
-    if (p.type === 'tree') {
-      const shakeX = G.chop?.prop === p ? Math.sin(G.clock * 40) * px * 0.6 : 0;
-      drawSprite(ctx, 'tree', sx + shakeX - px * 2, sy + ts - 12 * px * 1.8, px * 1.8);
+    if (p.type === 'bottle') { drawSprite(ctx, 'bottle', sx + 2 * px, sy + 3 * px + Math.sin(G.clock * 1.7) * px, px); continue; }
+    if (p.type === 'kelp') {
+      // 키 큰 다시마: 마디마다 흔들린다
+      const segs = 5 + Math.floor(hash(p.x, 3) * 3);
+      let x = sx + ts / 2, y = sy + ts;
+      for (let i = 0; i < segs; i++) {
+        const sw = Math.sin(G.clock * 1.4 + p.x + i * 0.6) * px * (0.5 + i * 0.35);
+        ctx.fillStyle = i % 2 ? '#3f6a2c' : '#4f7d36';
+        ctx.fillRect(x + sw - px * 1.5, y - px * 4, px * 3, px * 4);
+        y -= px * 4;
+      }
       continue;
     }
-    if (p.type === 'beehive') { drawSprite(ctx, 'beehive', sx, sy + Math.sin(G.clock * 2) * px * 0.3, px * 1.1); continue; }
-    if (p.type === 'cicada') { drawSprite(ctx, 'cicada', sx + 2 * px, sy + 2 * px, px); continue; }
-    if (p.type === 'sign') { drawSprite(ctx, 'sign', sx, sy, px); continue; }
-    if (p.type === 'bottle') { drawSprite(ctx, 'bottle', sx + 2 * px, sy + 2 * px, px); continue; }
-    const sw = Math.sin(G.clock * 2 + p.x) * px * 0.4;
-    drawSprite(ctx, p.type, sx + sw, sy, px);
-    if (p.type === 'clover' || (G.s.luck > 0 && HERBS.has(p.type))) {
-      ctx.fillStyle = `rgba(255,236,150,${0.5 + Math.sin(G.clock * 5 + p.x) * 0.4})`;
-      ctx.fillRect(sx + ts * hash(p.x, 1), sy + ts * hash(p.x, 2) * 0.5, px, px);
+    if (p.type === 'oyster') { drawSprite(ctx, 'oyster', p.side > 0 ? sx + px * 2 : sx, sy + px * 2, px); continue; }
+    if (p.type === 'seaCucumber') { drawSprite(ctx, 'seaCucumber', sx - px * 0.5, sy + ts - 4 * px, px); continue; }
+    if (p.type === 'seaweed') {
+      const sw = Math.sin(G.clock * 1.6 + p.x) * px * 0.8;
+      drawSprite(ctx, 'seaweed', sx + px + sw, sy + ts - 10 * px * 1.2, px * 1.2);
+      continue;
     }
+    drawSprite(ctx, p.type, sx, sy + ts - 7 * px, px);
   }
 }
+
+const FISH_SPRITE = { pollockFish: 'pollockFish', rockfishFish: 'rockfishFish', cuttlefishFish: 'cuttlefishFish', seahorseFish: 'seahorseFish', jelly: 'jelly', moray: 'moray', shark: 'shark' };
 
 function drawEnts(ts) {
   const px = ts / 8;
   for (const e of G.ents) {
-    const sx = (e.x - G.cam.x) * ts, sy = (e.y - G.cam.y) * ts;
-    if (sx < -ts * 2 || sx > view.cw + ts * 2) continue;
-    if (e.type === 'rabbit' || e.type === 'whiteRabbit') {
-      const frame = !e.onGround ? '2' : '';
-      drawSprite(ctx, e.type + frame, sx - px * 0.5, sy + e.h * ts - 7 * px, px, (e.face ?? 1) < 0);
-    } else if (e.type === 'pheasant') {
-      if (e.state === 'hide') {
-        drawSprite(ctx, 'pheasant', sx, sy + e.h * ts - 7 * px, px, false);
-        ctx.fillStyle = '#5f9a45';
-        for (let i = 0; i < 5; i++) ctx.fillRect(sx + i * 2 * px, sy + e.h * ts - (3 + (i % 2) * 2) * px, px, (3 + (i % 2) * 2) * px);
-      } else drawSprite(ctx, 'pheasantFly', sx, sy + Math.sin(G.clock * 20) * px, px, e.face < 0);
-    } else if (e.type === 'hive') drawSprite(ctx, 'beehive', sx, sy, px * 1.1);
-    else if (e.type === 'drop') drawSprite(ctx, e.item, sx, sy + Math.sin(G.clock * 4) * px * 0.5, px * 1.2);
-    else if (e.type === 'bees') {
-      for (let i = 0; i < 6; i++) {
-        const a = G.clock * 9 + i * 1.7;
-        drawSprite(ctx, 'bee', sx + ts * 0.45 + Math.cos(a) * ts * 0.45, sy + ts * 0.45 + Math.sin(a * 1.3) * ts * 0.4, px);
-      }
+    let sx = (e.x - G.cam.x) * ts, sy = (e.y - G.cam.y) * ts;
+    if (sx < -ts * 4 || sx > view.cw + ts * 4) continue;
+    if (e.type === 'drop') { drawSprite(ctx, e.item, sx, sy + Math.sin(G.clock * 3) * px, px * 1.3); continue; }
+    const key = FISH_SPRITE[e.type];
+    const { w, h } = spriteSize(key);
+    let scale = (e.w * ts) / w;
+    if (e.type === 'moray') {
+      // 바위 틈에서 머리를 내밀었다 들어간다
+      const out = e.lunge;
+      sx += (e.face > 0 ? -1 : 1) * (1 - out) * e.w * ts * 0.6;
+    }
+    const wig = e.type === 'jelly' ? 0 : Math.sin(G.clock * 10 + e.x) * px * 0.3;
+    if (e.hitT > 0) ctx.globalAlpha = 0.5 + Math.sin(G.clock * 40) * 0.3;
+    drawSprite(ctx, key, sx, sy + wig + (e.h * ts - h * scale) / 2, scale, e.face < 0 && e.type !== 'jelly' && e.type !== 'seahorseFish' ? false : e.type === 'jelly' || e.type === 'seahorseFish' ? false : true);
+    ctx.globalAlpha = 1;
+    if (e.type === 'shark' && e.hp < FISH.shark.hp) {
+      ctx.fillStyle = 'rgba(0,0,0,0.5)';
+      ctx.fillRect(sx, sy - px * 2, e.w * ts, px);
+      ctx.fillStyle = '#e0714f';
+      ctx.fillRect(sx, sy - px * 2, e.w * ts * (e.hp / FISH.shark.hp), px);
     }
   }
 }
 
-const TOOL_SPRITE = { hand: null, hoe: 'hoe', bow: 'bowIcon', ladder: 'ladderIcon', plank: 'plankIcon', dirt: 'dirt' };
-
 function drawPlayer(ts) {
   const p = G.player;
-  const sx = (p.x - G.cam.x) * ts, sy = (p.y - G.cam.y) * ts;
-  const scale = (p.h * ts) / 16;
-  let frame = 'hwata';
-  let bob = 0;
-  if (p.climbing) frame = Math.floor(p.y * 3) % 2 ? 'hwata2' : 'hwata';
-  else if (!p.onGround) frame = 'hwata2';
-  else if (p.walkT) { frame = Math.floor(p.walkT * 9) % 2 ? 'hwata2' : 'hwata'; bob = Math.abs(Math.sin(p.walkT * 14)) * scale * 0.6; }
-  else bob = Math.sin(G.clock * 2.5) > 0.6 ? scale * 0.3 : 0;
-  const cx = sx + (p.w * ts) / 2;
-  drawSprite(ctx, frame, cx - 5 * scale, sy - bob, scale, p.face < 0);
-  // 손에 든 도구
+  const c = playerCenter();
+  const sx = (c.x - G.cam.x) * ts, sy = (c.y - G.cam.y) * ts;
+  const scale = ts / 7.5;
+  const frame = Math.floor(p.kick) % 2 ? 'swim2' : 'swim';
+  ctx.save();
+  ctx.translate(sx, sy);
+  if (p.face < 0) ctx.scale(-1, 1);
+  ctx.rotate(p.ang);
+  if (G.hurtT > 0 && Math.floor(G.clock * 20) % 2) ctx.globalAlpha = 0.5;
+  drawSprite(ctx, frame, -8 * scale, -3.5 * scale, scale);
   const tool = TOOL_SPRITE[G.mode];
-  if (tool && !p.climbing) {
-    const handX = cx + p.face * 3.5 * scale, handY = sy + 9 * scale - bob;
-    const ang = p.swing > 0 ? Math.sin((p.swing / 0.25) * Math.PI) * 1.4 : 0.3;
+  if (tool && G.mode !== 'hand') {
+    const ang = p.swing > 0 ? -Math.sin((p.swing / 0.25) * Math.PI) * 0.9 : 0;
     ctx.save();
-    ctx.translate(handX, handY);
-    if (p.face < 0) ctx.scale(-1, 1);
-    ctx.rotate(G.mode === 'hoe' ? -ang : G.mode === 'bow' ? 0 : -0.2);
-    const s = scale * (G.mode === 'bow' ? 0.9 : 0.7);
-    drawSprite(ctx, tool, -1 * s, -6 * s, s);
+    ctx.translate(5 * scale, 1 * scale);
+    ctx.rotate(ang + (G.mode === 'shovel' ? 0.4 : -0.2));
+    drawSprite(ctx, tool, 0, -4 * scale * 0.8, scale * 0.8);
     ctx.restore();
   }
+  ctx.restore();
 }
 
-function drawArrows(ts) {
-  ctx.lineWidth = Math.max(2, ts * 0.07);
-  for (const a of G.arrows) {
+function drawShots(ts) {
+  const pc = playerCenter();
+  for (const a of G.shots) {
     const sx = (a.x - G.cam.x) * ts, sy = (a.y - G.cam.y) * ts;
-    const len = Math.hypot(a.vx, a.vy) || 1;
-    const dx = (a.vx / len) * ts * 0.8, dy = (a.vy / len) * ts * 0.8;
-    ctx.strokeStyle = a.type === 'net' ? '#d8e2e6' : '#e9d7b0';
-    ctx.beginPath(); ctx.moveTo(sx - dx, sy - dy); ctx.lineTo(sx, sy); ctx.stroke();
-    if (a.type === 'net') {
-      ctx.fillStyle = 'rgba(216,226,230,0.8)';
-      ctx.fillRect(sx - ts * 0.15, sy - ts * 0.15, ts * 0.3, ts * 0.3);
+    if (a.mode === 'harpoon') {
+      ctx.strokeStyle = 'rgba(233,225,204,0.7)';
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo((pc.x - G.cam.x) * ts, (pc.y - G.cam.y) * ts); ctx.lineTo(sx, sy); ctx.stroke();
+      const ang = Math.atan2(a.vy, a.vx);
+      ctx.save();
+      ctx.translate(sx, sy);
+      ctx.rotate(ang);
+      ctx.fillStyle = '#d7dde2';
+      ctx.fillRect(-ts * 0.6, -1.5, ts * 0.6, 3);
+      ctx.beginPath(); ctx.moveTo(0, -4); ctx.lineTo(8, 0); ctx.lineTo(0, 4); ctx.fill();
+      ctx.restore();
+    } else {
+      ctx.strokeStyle = '#e9e1cc';
+      ctx.lineWidth = 1.5;
+      const r = ts * 0.5;
+      ctx.beginPath(); ctx.arc(sx, sy, r, 0, Math.PI * 2); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx - r, sy); ctx.lineTo(sx + r, sy); ctx.moveTo(sx, sy - r); ctx.lineTo(sx, sy + r); ctx.stroke();
     }
   }
 }
@@ -1423,63 +1302,45 @@ function drawParts(ts) {
     ctx.fillRect(sx - s / 2, sy - s / 2, s, s);
   }
   ctx.globalAlpha = 1;
+  ctx.strokeStyle = 'rgba(220,245,255,0.7)';
+  ctx.lineWidth = 1;
+  for (const b of G.bubbles) {
+    ctx.beginPath(); ctx.arc((b.x - G.cam.x) * ts, (b.y - G.cam.y) * ts, b.r * ts, 0, Math.PI * 2); ctx.stroke();
+  }
 }
 
 function drawOverlays(ts) {
   const px = ts / 8;
   const pc = playerCenter();
-  // 손 닿는 범위와 겨눈 칸
-  const c = (G.mode !== 'hand' && G.mode !== 'bow') ? cursorTile() : null;
+  const c = G.mode === 'shovel' ? cursorTile() : null;
   if (c) {
     ctx.strokeStyle = 'rgba(255,246,216,0.25)';
     ctx.lineWidth = 2;
     ctx.setLineDash([6, 6]);
     ctx.beginPath(); ctx.arc((pc.x - G.cam.x) * ts, (pc.y - G.cam.y) * ts, REACH * ts, 0, Math.PI * 2); ctx.stroke();
     ctx.setLineDash([]);
-    const sx = (c.x - G.cam.x) * ts, sy = (c.y - G.cam.y) * ts;
-    let ok = inReach(c.x, c.y);
-    if (G.mode === 'hoe') ok = ok && canDig(G.world, c.x, c.y);
-    else if (PLACE_TILE[G.mode]) {
-      ok = placeCheck(c.x, c.y).ok;
-      ctx.globalAlpha = 0.55;
-      drawSprite(ctx, TOOL_SPRITE[G.mode], sx, sy, px);
-      ctx.globalAlpha = 1;
-    }
+    const ok = inReach(c.x, c.y) && canDig(G.world, c.x, c.y);
     ctx.strokeStyle = ok ? '#bff0a0' : '#ff8a78';
     ctx.lineWidth = Math.max(2, px * 0.6);
-    ctx.strokeRect(sx + 1, sy + 1, ts - 2, ts - 2);
+    ctx.strokeRect((c.x - G.cam.x) * ts + 1, (c.y - G.cam.y) * ts + 1, ts - 2, ts - 2);
   }
-  // 금 간 흙
   if (G.mine) {
     const m = G.mine;
     const sx = (m.x - G.cam.x) * ts, sy = (m.y - G.cam.y) * ts;
-    const stage = Math.min(3, Math.floor((m.t / m.need) * 4));
-    ctx.strokeStyle = 'rgba(20,12,6,0.85)';
-    ctx.lineWidth = px * 0.7;
-    const cracks = [[[0.5, 0.5, 0.2, 0.25], [0.5, 0.5, 0.8, 0.35]], [[0.5, 0.5, 0.35, 0.85], [0.2, 0.25, 0.1, 0.5]], [[0.8, 0.35, 0.9, 0.8], [0.5, 0.5, 0.7, 0.9]]];
-    for (let i = 0; i < stage; i++) {
-      for (const [a, b, c2, d] of cracks[i]) {
-        ctx.beginPath(); ctx.moveTo(sx + a * ts, sy + b * ts); ctx.lineTo(sx + c2 * ts, sy + d * ts); ctx.stroke();
-      }
-    }
-  }
-  if (G.chop) {
-    const p = G.chop.prop;
-    const sx = (p.x - G.cam.x) * ts, sy = (p.y - G.cam.y) * ts;
     ctx.fillStyle = 'rgba(20,16,12,0.5)';
-    ctx.fillRect(sx, sy + ts + 3, ts, 5);
+    ctx.fillRect(sx, sy - 6, ts, 4);
     ctx.fillStyle = '#ffd76a';
-    ctx.fillRect(sx, sy + ts + 3, ts * (G.chop.t / G.chop.dur), 5);
+    ctx.fillRect(sx, sy - 6, ts * (m.t / m.need), 4);
   }
   if (G.aim) {
-    const dx = G.aim.x - pc.x, dy = G.aim.y - (pc.y - 0.3);
+    const dx = G.aim.x - pc.x, dy = G.aim.y - pc.y;
     const len = Math.hypot(dx, dy) || 1;
-    const speed = G.s.upgrades.bow ? 27 : 18;
-    let x = pc.x, y = pc.y - 0.3, vx = (dx / len) * speed, vy = (dy / len) * speed;
-    for (let i = 0; i < 26; i++) {
-      for (let k = 0; k < 2; k++) { vy += arrowGravity() * 0.02; x += vx * 0.02; y += vy * 0.02; }
+    const range = G.mode === 'net' ? 5.4 : 10;
+    for (let i = 1; i <= 14; i++) {
+      const t = (i / 14) * range;
+      const x = pc.x + (dx / len) * t, y = pc.y + (dy / len) * t;
       if (isSolid(G.world, Math.floor(x), Math.floor(y))) break;
-      ctx.fillStyle = `rgba(255,246,216,${0.9 - i * 0.03})`;
+      ctx.fillStyle = `rgba(255,246,216,${0.9 - i * 0.05})`;
       ctx.fillRect((x - G.cam.x) * ts - 2, (y - G.cam.y) * ts - 2, 4, 4);
     }
   }
@@ -1508,7 +1369,6 @@ function drawOverlays(ts) {
     ctx.fillText(fl.text, (fl.x - G.cam.x) * ts, (fl.y - G.cam.y) * ts);
   }
   ctx.globalAlpha = 1;
-  // 바구니로 날아가는 아이콘(화면 좌표)
   const r = cvs.getBoundingClientRect();
   for (const f of G.flyers) {
     const t = f.t, e = t * t * (3 - 2 * t);
@@ -1527,46 +1387,55 @@ function drawOverlays(ts) {
 
 function updateHud() {
   const s = G.s;
+  const c = playerCenter();
   $('hudDay').textContent = `${s.day}일째`;
-  $('hudZone').textContent = ZONE_NAMES[G.zone] ?? '';
+  $('hudZone').textContent = `${ZONE_NAMES[G.zone] ?? ''} · 수심 ${Math.max(0, Math.round(c.y - SEA))}m`;
   const left = Math.max(0, DAY_SECONDS - G.time);
   $('sunFill').style.width = `${(left / DAY_SECONDS) * 100}%`;
   $('sunFill').classList.toggle('late', left < 30);
-  $('staminaFill').style.width = `${(s.stamina / maxStamina(s)) * 100}%`;
-  $('hudStamina').textContent = s.stamina;
+  const br = s.stamina / maxStamina(s);
+  $('staminaFill').style.width = `${br * 100}%`;
+  $('staminaFill').classList.toggle('late', br < 0.25);
+  $('hudStamina').textContent = Math.ceil(s.stamina);
   const wt = basketWeight(s);
   $('hudWeight').textContent = `${wt}/${carryLimit(s)}`;
   $('hudWeight').classList.toggle('over', wt > carryLimit(s));
-  $('slotCount-bow').textContent = s.arrows;
-  $('slotCount-ladder').textContent = count(s, 'wood');
-  $('slotCount-plank').textContent = count(s, 'wood');
-  $('slotCount-dirt').textContent = count(s, 'dirt');
+  $('slotCount-net').textContent = s.arrows;
   $('hudMoney').textContent = s.money;
-  $('homeBtn').hidden = G.player.x > 14;
+  $('homeBtn').hidden = !nearBoat();
   drawMinimap();
 }
-
-const MINI_COLORS = { clinic: '#c9b48f', path: '#9bb36a', field: '#d9c25a', stream: '#6ea7c9', hill: '#7f9a56', forest: '#4f7542' };
 
 function drawMinimap() {
   const m = $('minimap');
   const g = m.getContext('2d');
   const w = m.width, h = m.height;
-  g.clearRect(0, 0, w, h);
-  for (const [k, [a, b]] of Object.entries(ZONES)) {
-    if (k === 'log') continue;
-    g.fillStyle = MINI_COLORS[k];
-    g.fillRect((a / W) * w, h * 0.35, ((b - a + 1) / W) * w, h * 0.3);
+  if (!G.miniBase) {
+    // 바다 단면을 한 번만 그려 둔다
+    const base = document.createElement('canvas');
+    base.width = w; base.height = h;
+    const b = base.getContext('2d');
+    b.fillStyle = '#1f5a7a';
+    b.fillRect(0, (SEA / H) * h, w, h);
+    b.fillStyle = '#c9b07a';
+    for (let x = 0; x < W; x++) {
+      const f = floorY(G.world, x);
+      b.fillRect((x / W) * w, (f / H) * h, Math.ceil(w / W) + 0.5, h);
+    }
+    G.miniBase = base;
   }
-  g.fillStyle = '#5b3d22';
-  g.fillRect((ZONES.log[0] / W) * w, h * 0.2, ((ZONES.log[1] - ZONES.log[0] + 1) / W) * w, h * 0.6);
+  g.clearRect(0, 0, w, h);
+  g.drawImage(G.miniBase, 0, 0);
   for (const p of G.props) {
     if (p.type !== 'npc') continue;
     g.fillStyle = '#ffd76a';
-    g.fillRect((p.x / W) * w - 2, 0, 4, h * 0.3);
+    g.fillRect((p.x / W) * w - 1.5, (p.y / H) * h - 1.5, 3, 3);
   }
+  g.fillStyle = '#8a5d36';
+  g.fillRect((BOAT_X / W) * w, (SEA / H) * h - 2, 4, 2);
+  const c = playerCenter();
   g.fillStyle = '#fff';
-  g.fillRect((G.player.x / W) * w - 2, h * 0.15, 4, h * 0.7);
+  g.fillRect((c.x / W) * w - 2, (c.y / H) * h - 2, 4, 4);
 }
 
 // ---------- 밤: 한의원 ----------
@@ -1589,25 +1458,33 @@ function recipeLine(id, mult = 1) {
 
 function unlockText(id) {
   const u = RECIPES[id].unlock;
-  if (u === 'quest1') return '나무꾼을 도우면 배움';
+  if (u === 'quest1') return '해녀 할망을 도우면 배움';
   return `${u.day}일째부터`;
 }
 
 function invList(s) {
   const rows = Object.entries(s.inv).filter(([, v]) => v.n > 0);
-  if (!rows.length) return '<p class="muted">바구니가 비었습니다.</p>';
+  if (!rows.length) return '<p class="muted">망사리가 비었습니다.</p>';
   return `<ul class="inv">${rows.map(([id, v]) => `<li>${ico(id)}<span>${MATERIALS[id].name}</span><b>${v.n}</b>${v.hq ? `<em>상급 ${v.hq}</em>` : ''}</li>`).join('')}</ul>`;
 }
 
+function market(s) {
+  const rows = Object.keys(MATERIALS).filter((id) => MATERIALS[id].sell && count(s, id) > 0);
+  if (!rows.length) return '<p class="muted">팔 만한 귀한 것이 없습니다. 우럭·진주·해마·상어 이빨을 팔 수 있습니다.</p>';
+  return `<ul class="shop">${rows.map((id) => `<li>${ico(id, 'lg')}<div><b>${MATERIALS[id].name} ${count(s, id)}개</b><small>하나에 ${MATERIALS[id].sell}냥 (상급은 1.5배)</small></div><button data-act="sell" data-id="${id}">하나 팔기</button></li>`).join('')}</ul>`;
+}
+
 function notebook(s) {
-  const dexIds = Object.keys(MATERIALS).filter((id) => MATERIALS[id].weight > 0 || ['cicada', 'feather', 'clover'].includes(id));
+  const dexIds = Object.keys(MATERIALS);
   const found = dexIds.filter((id) => s.dex?.[id]).length;
   const pages = [1, 2, 3].map((n) => (hasPage(s, n)
     ? `<li class="got">${ico('page')}<div><b>${PAGES[n].name}</b><span>${PAGES[n].perk}</span></div></li>`
-    : `<li>${ico('page', 'dim')}<div><b>청낭서 ${n}장</b><span>땅속 어딘가의 항아리</span></div></li>`)).join('');
+    : `<li>${ico('page', 'dim')}<div><b>청낭서 ${n}장</b><span>바닷속 어딘가의 상자</span></div></li>`)).join('');
   const dex = dexIds.map((id) => `<li class="${s.dex?.[id] ? 'got' : ''}">${ico(id, s.dex?.[id] ? '' : 'dim')}<span>${s.dex?.[id] ? MATERIALS[id].name : '?'}</span></li>`).join('');
   return `<div><h4>수첩 · 청낭서</h4><ul class="pages">${pages}</ul></div><div><h4>재료 도감 ${found}/${dexIds.length}</h4><ul class="dex">${dex}</ul></div>`;
 }
+
+const UPGRADE_ICON = { gourd: 'tewak', fins: 'swim', harpoon: 'harpoon', lantern: 'pearl', basket: 'netIcon' };
 
 function renderPrep() {
   const s = G.s;
@@ -1638,8 +1515,7 @@ function renderPrep() {
   }).join('');
   const shop = Object.entries(UPGRADES).map(([k, u]) => {
     const items = Object.entries(u.items).map(([id, n]) => `${ico(id)}${MATERIALS[id].name} ${n}`).join(', ');
-    const icon = { basket: 'bag', hoe: 'hoe', bow: 'bowIcon' }[k];
-    return `<li>${ico(icon, 'lg')}<div><b>${u.name}</b><span>${u.desc}</span><small>${u.money}냥 + ${items}</small></div>
+    return `<li>${ico(UPGRADE_ICON[k], 'lg')}<div><b>${u.name}</b><span>${u.desc}</span><small>${u.money}냥 + ${items}</small></div>
       <button data-act="buy" data-id="${k}" ${canBuyUpgrade(s, k) ? '' : 'disabled'}>${s.upgrades[k] ? '완료' : '맞추기'}</button></li>`;
   }).join('');
   const menuNames = s.menu.map((id) => RECIPES[id].name).join(', ') || '없음';
@@ -1651,11 +1527,10 @@ function renderPrep() {
     <canvas class="scene" id="scene" aria-label="한의원 안"></canvas>
     <section><h4>약장</h4><p class="muted">오늘 낼 약은 최대 ${MAX_MENU}가지(지금: ${menuNames}). 약은 미리 달여 두어야 팔 수 있습니다.</p><div class="meds">${meds}</div></section>
     <section class="two">
-      <div><h4>대장간</h4><ul class="shop">${shop}
-        <li>${ico('arrowIcon', 'lg')}<div><b>화살 ${ARROW_PACK.count}발</b><span>지금 ${s.arrows}발</span><small>${ARROW_PACK.money}냥</small></div><button data-act="arrows" ${s.money >= ARROW_PACK.money ? '' : 'disabled'}>사기</button></li>
-        <li>${ico('feather', 'lg')}<div><b>화살 ${ARROW_CRAFT.count}발 만들기</b><span>깃털 1 + 나무 1</span><small>직접 만들기</small></div><button data-act="craft" ${count(s, 'feather') && count(s, 'wood') ? '' : 'disabled'}>만들기</button></li>
+      <div><h4>대장간·물질 도구</h4><ul class="shop">${shop}
+        <li>${ico('netIcon', 'lg')}<div><b>그물 ${ARROW_PACK.count}개</b><span>지금 ${s.arrows}개</span><small>${ARROW_PACK.money}냥</small></div><button data-act="arrows" ${s.money >= ARROW_PACK.money ? '' : 'disabled'}>사기</button></li>
       </ul></div>
-      <div><h4>바구니와 창고</h4>${invList(s)}</div>
+      <div><h4>망사리와 창고</h4>${invList(s)}<h4 class="sub">포구 장터</h4>${market(s)}</div>
     </section>
     <section class="two">${notebook(s)}</section>
     <div class="go"><button class="primary big" data-act="open">영업 시작</button></div>`;
@@ -1680,7 +1555,7 @@ function onNightClick(e) {
     else s.menu.push(id);
   } else if (act === 'buy') { if (buyUpgrade(s, id).ok) { sfx.coin(); toast(`${UPGRADES[id].name}을(를) 새로 맞췄습니다`, 'good'); } }
   else if (act === 'arrows') { if (buyArrows(s).ok) sfx.coin(); }
-  else if (act === 'craft') { if (craftArrows(s).ok) sfx.place(); }
+  else if (act === 'sell') { const r = sellItem(s, id); if (r.ok) { sfx.coin(); toast(`${MATERIALS[id].name}을(를) ${r.coins}냥에 팔았다`, 'good'); } }
   else if (act === 'open') return startService();
   else if (act === 'serve') return pickMed(id);
   else if (act === 'fire') return stopBrew();
@@ -1735,6 +1610,14 @@ function renderMedbar() {
   }).join('') + `<button class="ghost" data-act="send" ${front && !n.brewing ? '' : 'disabled'}><b>돌려보내기</b><span>맞는 약이 없을 때</span></button>`;
 }
 
+const CLUES = {
+  mother: '얼굴이 창백하고 갓난아기를 업고 있다.',
+  elder: '자꾸 벽을 짚는다.',
+  diver: '배를 움켜쥐고 신물을 삼킨다.',
+  drunk: '코끝이 빨갛고 술 냄새가 난다.',
+  fisher: '허리를 펴지 못한다.',
+};
+
 function renderQueue() {
   const n = G.night;
   const front = n.queue[0];
@@ -1744,7 +1627,7 @@ function renderQueue() {
     return;
   }
   const P = PATIENTS[front.type];
-  const clue = { drunk: '코끝이 빨갛고 술 냄새가 난다.', scholar: '눈이 벌겋게 충혈되어 있다.', farmer: '손에 피 묻은 천을 감고 있다.', elder: '연신 목을 가다듬는다.', child: '배를 움켜쥐고 있다.' }[front.type];
+  const clue = CLUES[front.type];
   fr.innerHTML = `<div class="bubble"><b>${P.name}</b><p>"${P.line}"</p>${clue ? `<small>${clue}</small>` : ''}</div>`;
 }
 
@@ -1841,7 +1724,7 @@ function updateNight(dt) {
   if ((n.t >= NIGHT_SECONDS || done) && !n.brewing) endService();
 }
 
-// 한의원 안: 약장, 걸어 둔 약초, 화타, 줄 선 환자들
+// 한의원 안: 약장, 걸어 둔 약재, 화타, 줄 선 환자들
 function drawScene(dt) {
   const c = $('scene');
   if (!c) return;
@@ -1862,7 +1745,6 @@ function drawScene(dt) {
   g.fillRect(0, h * 0.72, w, h * 0.28);
   g.fillStyle = '#5a3d24';
   g.fillRect(0, h * 0.72, w, u * 0.6);
-  // 약장 서랍
   const cabW = Math.min(w * 0.3, u * 26);
   const drawerW = (cabW - u * 1.6) / 5;
   g.fillStyle = '#7a522a';
@@ -1876,17 +1758,15 @@ function drawScene(dt) {
       g.fillRect(dx + (drawerW - u * 0.5) / 2 - u * 0.3, dy + u * 1.2, u * 0.6, u * 0.6);
     }
   }
-  // 천장에 걸린 약초
+  // 천장에 말려 둔 미역과 북어
   for (let i = 0; i < 6; i++) {
     const x = cabW + u * 4 + i * u * 6;
     if (x > w * 0.7) break;
     g.strokeStyle = '#8a6a44';
     g.lineWidth = 1;
     g.beginPath(); g.moveTo(x, 0); g.lineTo(x, u * 3); g.stroke();
-    g.fillStyle = ['#6f9a55', '#c9a24a', '#8a9a5a'][i % 3];
-    g.fillRect(x - u, u * 3, u * 2, u * 4 + Math.sin(G.clock + i) * u * 0.2);
+    drawSpriteOn(g, i % 2 ? 'pollock' : 'seaweed', x - u * 2, u * 3, u * 0.5, false);
   }
-  // 등불
   const lx = w * 0.5, ly = u * 5;
   const glow = g.createRadialGradient(lx, ly, 0, lx, ly, u * 14);
   glow.addColorStop(0, 'rgba(255,200,110,0.45)');
@@ -1895,7 +1775,6 @@ function drawScene(dt) {
   g.fillRect(0, 0, w, h);
   g.fillStyle = '#b8432f';
   g.fillRect(lx - u, ly - u * 1.4, u * 2, u * 2.8);
-  // 화타와 약탕기
   const hx = cabW + u * 6, base = h * 0.72;
   const sc = u * 1.05;
   drawSpriteOn(g, 'hwata', hx, base - 16 * sc, sc, false);
@@ -1916,16 +1795,14 @@ function drawScene(dt) {
       g.beginPath(); g.arc(st.x + Math.sin(st.t * 6) * u * 0.6, st.y, u * (1.6 - st.t), 0, Math.PI * 2); g.fill();
     }
   }
-  // 조수 장비는 문간을 지킨다
   if (G.s.flags.zhangfei) drawSpriteOn(g, 'zhangfei', w - u * 13, base - 16 * sc * 1.1, sc * 1.1, true);
-  // 손님
   if (n) {
     n.queue.forEach((q, i) => {
       const slot = i === 0 ? potX + u * 5 : potX + u * 10 + i * u * 6;
       const x = slot + q.walk * u * 20;
       if (x > w) return;
       const s = i === 0 ? sc : sc * 0.85;
-      const big = q.type === 'zhangfei' ? 1.15 : q.type === 'child' ? 0.8 : 1;
+      const big = q.type === 'zhangfei' ? 1.15 : 1;
       drawSpriteOn(g, q.type, x, base - 16 * s * big, s * big, true);
       const pw = 10 * s;
       g.fillStyle = 'rgba(0,0,0,0.35)';
@@ -1979,12 +1856,12 @@ function renderEnding() {
   s.phase = 'end';
   save();
   const meds = Object.keys(s.meds).map((id) => `${RECIPES[id].name} ${s.meds[id].level}단계`).join(', ');
-  $('nightBody').innerHTML = `<section class="summary ending"><p class="eyebrow">시제품 1 · 마을 뒷들</p><h2>1부 끝</h2>
-    <p>일주일 동안 한의원을 꾸렸습니다. 엽전 ${s.money}냥, 평판 ${s.rep}.</p>
+  $('nightBody').innerHTML = `<section class="summary ending"><p class="eyebrow">시제품 · 바닷가 마을</p><h2>1부 끝</h2>
+    <p>일주일 동안 바닷가 한의원을 꾸렸습니다. 엽전 ${s.money}냥, 평판 ${s.rep}.</p>
     <p>익힌 약: ${meds}</p>
     <p>청낭서 ${(s.pages ?? []).length}/3장 · 재료 도감 ${Object.keys(s.dex ?? {}).length}가지</p>
-    <p>${s.flags.zhangfei ? '장비가 조수로 들어왔습니다. "형님들께도 의원 양반 얘기를 해 두겠소!"' : '개울가의 큰 사내는 끝내 한의원에 오지 않았습니다. 다음에는 칡즙을 미리 달여 두세요.'}</p>
-    <hr><p>다음 이야기: 쓰러진 나무 너머 대나무 숲. 도끼, 첫 보스 「외눈 멧돼지」, 유비 삼형제가 기다립니다.</p>
+    <p>${s.flags.zhangfei ? '장비가 조수로 들어왔습니다. "형님들께도 의원 양반 얘기를 해 두겠소!"' : '물에 빠졌던 큰 사내는 끝내 한의원에 오지 않았습니다. 다음에는 북어탕을 미리 달여 두세요.'}</p>
+    <hr><p>다음 이야기: 해구 밑바닥의 난파선. 첫 보스 「검은지느러미 상어」와 유비 삼형제가 기다립니다.</p>
     <div class="go"><button class="primary big" data-act="restart">처음부터 다시</button></div></section>`;
   G.sceneMode = null;
 }
@@ -1998,7 +1875,7 @@ function restart() {
 // ---------- 시작 ----------
 
 function runtime() {
-  return { props: [], ents: [], arrows: [], floats: [], parts: [], flyers: [], time: 0, clock: 0, mode: 'hand', arrowType: 'normal', cam: null, paused: false, night: null };
+  return { props: [], ents: [], shots: [], floats: [], parts: [], bubbles: [], flyers: [], time: 0, clock: 0, mode: 'hand', cam: null, paused: false, night: null };
 }
 
 function resize() {
@@ -2010,7 +1887,7 @@ function resize() {
   cvs.height = Math.round(r.height * view.dpr);
   ctx.setTransform(view.dpr, 0, 0, view.dpr, 0, 0);
   const portrait = r.height > r.width;
-  view.ts = Math.max(18, Math.round(portrait ? r.width / 14 : Math.min(r.width / 24, r.height / 14)));
+  view.ts = Math.max(18, Math.round(portrait ? r.width / 13 : Math.min(r.width / 24, r.height / 13)));
 }
 
 let last = performance.now();
@@ -2031,25 +1908,39 @@ function frame(now) {
   requestAnimationFrame(frame);
 }
 
-function bindPad() {
-  for (const b of document.querySelectorAll('[data-pad]')) {
-    const k = b.dataset.pad;
-    const on = (e) => { e.preventDefault(); unlockAudio(); pad[k] = true; b.classList.add('on'); b.setPointerCapture?.(e.pointerId); };
-    const off = () => { pad[k] = false; b.classList.remove('on'); };
-    b.addEventListener('pointerdown', on);
-    b.addEventListener('pointerup', off);
-    b.addEventListener('pointercancel', off);
-    b.addEventListener('lostpointercapture', off);
-    b.addEventListener('contextmenu', (e) => e.preventDefault());
-  }
+function bindJoystick() {
+  const pad = $('joy');
+  const knob = $('joyKnob');
+  const move = (e) => {
+    const r = pad.getBoundingClientRect();
+    const cx = r.left + r.width / 2, cy = r.top + r.height / 2;
+    let dx = e.clientX - cx, dy = e.clientY - cy;
+    const max = r.width * 0.42;
+    const len = Math.hypot(dx, dy);
+    if (len > max) { dx = (dx / len) * max; dy = (dy / len) * max; }
+    joy.x = dx / max;
+    joy.y = dy / max;
+    if (Math.hypot(joy.x, joy.y) < 0.15) joy.x = joy.y = 0;
+    knob.style.transform = `translate(${dx}px, ${dy}px)`;
+  };
+  pad.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    unlockAudio();
+    joy.id = e.pointerId;
+    pad.setPointerCapture(e.pointerId);
+    move(e);
+  });
+  pad.addEventListener('pointermove', (e) => { if (e.pointerId === joy.id) move(e); });
+  const end = (e) => { if (e.pointerId !== joy.id) return; joy.id = null; joy.x = joy.y = 0; knob.style.transform = ''; };
+  pad.addEventListener('pointerup', end);
+  pad.addEventListener('pointercancel', end);
+  pad.addEventListener('contextmenu', (e) => e.preventDefault());
+}
+
+function bindUi() {
+  bindJoystick();
   for (const b of document.querySelectorAll('[data-mode]')) {
-    b.addEventListener('click', () => { unlockAudio(); sfx.click(); G.warnedStock = false; setMode(b.dataset.mode); });
-  }
-  for (const b of document.querySelectorAll('[data-arrow]')) {
-    b.addEventListener('click', () => {
-      G.arrowType = b.dataset.arrow;
-      for (const x of document.querySelectorAll('[data-arrow]')) x.classList.toggle('on', x === b);
-    });
+    b.addEventListener('click', () => { unlockAudio(); sfx.click(); setMode(b.dataset.mode); });
   }
   $('homeBtn').addEventListener('click', () => { if (!G.paused) askHome(); });
   $('muteBtn').addEventListener('click', () => { unlockAudio(); $('muteBtn').classList.toggle('off', toggleMute()); });
@@ -2058,26 +1949,26 @@ function bindPad() {
   $('bagBtn').addEventListener('click', () => {
     if (G.paused) return;
     openPanel({
-      title: '바구니',
+      title: '망사리',
       body: Object.entries(G.s.inv).filter(([, v]) => v.n > 0).map(([id, v]) => `${MATERIALS[id].name} ${v.n}${v.hq ? ` (상급 ${v.hq})` : ''}`).join('\n') || '아직 아무것도 없습니다.',
-      icon: 'bag',
+      icon: 'netIcon',
       choices: [{ label: '닫기', onClick: closePanel }],
     });
   });
   for (const m of MODES) {
     const img = document.querySelector(`[data-mode="${m}"] img`);
-    if (img) img.src = iconURL(TOOL_SPRITE[m] ?? 'hand');
+    if (img) img.src = iconURL(TOOL_SPRITE[m]);
   }
   for (const img of document.querySelectorAll('img[data-icon]')) img.src = iconURL(img.dataset.icon);
 }
 
-const KEY_MODES = { 1: 'hand', 2: 'hoe', 3: 'bow', 4: 'ladder', 5: 'plank', 6: 'dirt' };
+const KEY_MODES = { 1: 'hand', 2: 'harpoon', 3: 'net', 4: 'shovel' };
 
 function boot(hotData) {
   const data = restore(hotData) ?? loadSaved() ?? freshGame();
   G = { ...data, ...runtime() };
   resize();
-  bindPad();
+  bindUi();
   cvs.addEventListener('pointerdown', onPointerDown);
   cvs.addEventListener('pointermove', onPointerMove);
   cvs.addEventListener('pointerup', onPointerUp);
@@ -2102,7 +1993,7 @@ function boot(hotData) {
 }
 
 // 점검용: 주소에 ?debug 가 붙었을 때만 상태를 열어 둔다.
-if (location.search.includes('debug')) window.__hwata = { get G() { return G; }, pad, view };
+if (location.search.includes('debug')) window.__hwata = { get G() { return G; }, joy, view };
 
 if (window.claude?.hot?.ready) window.claude.hot.ready(boot);
 else boot(window.claude?.hot?.data);

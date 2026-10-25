@@ -26,6 +26,11 @@ const PEOPLE = {
   farmer: { head: 'gat', beard: 'none', pal: { H: '#d6b25e', R: '#b7a27e', D: '#8f7c5a', L: '#5a4632' } },
   drunk: { head: 'cap', beard: 'none', pal: { H: '#5a4632', R: '#6b6f8a', D: '#50546c', L: '#3a2b1d', N: '#d6402f', S: '#eeb08e' } },
   elder: { head: 'hair', beard: 'long', pal: { H: '#efeadf', B: '#efeadf', R: '#8a8f7a', D: '#6d725e', L: '#4a3d2c' } },
+  haenyeo: { head: 'cap', beard: 'none', pal: { H: '#e9e1cc', R: '#f2efe6', D: '#cfc8b6', L: '#2f6b4f', S: '#d9a77e' } },
+  diver: { head: 'cap', beard: 'none', pal: { H: '#f2efe6', R: '#f2efe6', D: '#cfc8b6', L: '#b8432f' } },
+  boy: { head: 'hair', beard: 'none', pal: { H: '#1b1410', R: '#7aa0c4', D: '#5a7fa3', L: '#e8c766' } },
+  mother: { head: 'hair', beard: 'none', pal: { H: '#2a2118', R: '#c98aa0', D: '#a86b80', L: '#f0d36a' } },
+  fisher: { head: 'gat', beard: 'long', pal: { H: '#d6b25e', B: '#5a4632', R: '#6c8fb5', D: '#4f6f92', L: '#5a4632' } },
 };
 
 const ART = {
@@ -125,6 +130,58 @@ const ART = {
   page: { rows: ['.pppppp.', 'pPPPPPPp', 'pPkkkkPp', 'pPPPPPPp', 'pPkkkPPp', 'pPPPPPPp', 'pPkkkkPp', '.pppppp.'], pal: { p: '#b8432f', P: '#f1e8d4', k: '#5a4632' } },
   coin: { rows: ['..yyy..', '.yYYYy.', 'yYykyYy', 'yYkkkYy', 'yYykyYy', '.yYYYy.', '..yyy..'], pal: { y: '#b8861f', Y: '#e3b54a', k: '#2a2118' } },
   arrowIcon: { rows: ['......ii', '.....ti.', '....t...', '...t....', '..t.....', 'ff......', 'f.......', '........'], pal: { t: '#c9a26c', i: '#9aa3ad', f: '#e9e1cc' } },
+  // 바닷속
+  swim: {
+    rows: ['...........kk...', '..........kSSS..', 'KK.RRRRRRRSSES..', '.KRRDRRRLRSSSN..', 'KK.RRRRRRRBBB...', '....RR....BB....', '....ss..........'],
+    pal: { k: '#3b2f2a', S: '#e9c29b', E: '#1b1410', N: '#d9a882', R: '#3f5f86', D: '#2c4566', L: '#c99a3c', B: '#efeadf', K: '#3a2b1d', s: '#e9c29b' },
+  },
+  swim2: {
+    rows: ['...........kk...', '..........kSSS..', '.K.RRRRRRRSSES..', 'KKRRDRRRLRSSSN..', '.K.RRRRRRRBBB...', '.....RR...BB....', '.....ss.........'],
+    pal: { k: '#3b2f2a', S: '#e9c29b', E: '#1b1410', N: '#d9a882', R: '#3f5f86', D: '#2c4566', L: '#c99a3c', B: '#efeadf', K: '#3a2b1d', s: '#e9c29b' },
+  },
+  pollockFish: { rows: ['...bbbbbb.', 't.bbbbbbEb', 'ttbbbbbbbb', 't..wwwwww.'], pal: { b: '#7d8a8f', E: '#1b1410', t: '#5f6b70', w: '#c9d2d4' } },
+  rockfishFish: {
+    rows: ['....rr....', '..rrrrrrr.', 't.rRrrrrEr', 'ttrrrRrrrr', 't.rrrrrrr.', '...rr.rr..'],
+    pal: { r: '#6b4a3a', R: '#3f2a20', E: '#f0d36a', t: '#4f3428' },
+  },
+  cuttlefishFish: {
+    rows: ['.fffffffff.', 'tcccccccccE', 'ttcCcccCccc', 'tcccccccccc', '.fffffffff.'],
+    pal: { f: '#e8c9a0', c: '#c99a6a', C: '#8a5c32', E: '#1b1410', t: '#d8a77e' },
+  },
+  seahorseFish: {
+    rows: ['.oo..', 'ooEo.', '..oo.', '.ooo.', '.oOo.', '..oo.', '..oo.', '...o.', '..oo.'],
+    pal: { o: '#e8893a', O: '#b8602a', E: '#1b1410' },
+  },
+  shark: {
+    rows: ['..........gg............', '.........ggg............', 't.....gggggggggggggg....', 'tt..gggggggggggggggggE..', 'ttgggggggggggggggggggggg', 'tt..wwwwwwwwwwwwwwwwwkw.', 't.....wwwwwwwwwwwwwk....', '..........g.............'],
+    pal: { g: '#6f7f8f', E: '#1b1410', t: '#56636f', w: '#d6dde3', k: '#1b1410' },
+  },
+  moray: { rows: ['..yyyyyyyyyyy.', 'yyyGyyyGyyyyEy', 'yyyyyyyyyyyyyy', '..yyyyyyyyyKK.'], pal: { y: '#9aa84a', G: '#5d6b2a', E: '#1b1410', K: '#f2efe6' } },
+  jelly: {
+    rows: ['.ppppp.', 'pPpppPp', 'ppppppp', 'p.p.p.p', 'p.p.p.p', '.p.p.p.', '.p...p.', 'p.....p'],
+    pal: { p: 'rgba(214,170,240,0.85)', P: '#f6e6ff' },
+  },
+  seaweed: { rows: ['..g...', '.gg...', '.g..g.', 'gg..gg', '.g.gg.', '.ggg..', '..gg.g', '.gg.gg', 'gg.gg.', '.ggg..'], pal: { g: '#6b7a2e' } },
+  kelp: { rows: ['..gg..', '.gGg..', '.ggg..', '..gGg.', '..ggg.', '.gGg..', '.ggg..', '..gg..', '..g...', '..g...'], pal: { g: '#4a6a32', G: '#355226' } },
+  oyster: { rows: ['.gggg.', 'gGggGg', 'gggggg', 'gGgwgg', '.gggg.'], pal: { g: '#9a9a92', G: '#6f6f68', w: '#f2efe6' } },
+  seaCucumber: { rows: ['..b.b.b..', '.bbbbbbbb', 'bbBbbBbbb', '.bbbbbbb.'], pal: { b: '#5a3d2e', B: '#3a2618' } },
+  cuttlebone: { rows: ['.wwwwww.', 'wWwwwwWw', 'wwwwwwww', '.wwwwww.'], pal: { w: '#f2efe6', W: '#d8d2c2' } },
+  pollock: { rows: ['..yyyyyy..', 'ttyYyyyyyE', 'ttyyyyYyyy', '..yyyyyy..'], pal: { y: '#d9b878', Y: '#b8955a', t: '#a8875a', E: '#3a2b1d' } },
+  rockfish: { rows: ['....rr....', '..rrrrrrr.', 't.rRrrrrEr', 'ttrrrRrrrr', 't.rrrrrrr.', '...rr.rr..'], pal: { r: '#6b4a3a', R: '#3f2a20', E: '#f0d36a', t: '#4f3428' } },
+  pearl: { rows: ['.ww.', 'wWww', 'wwww', '.ww.'], pal: { w: '#f4f0f8', W: '#ffffff' } },
+  seahorse: { rows: ['.oo..', 'ooEo.', '..oo.', '.ooo.', '.oOo.', '..oo.', '..oo.', '...o.', '..oo.'], pal: { o: '#e8893a', O: '#b8602a', E: '#1b1410' } },
+  sharkTooth: { rows: ['wwww', 'wWww', '.ww.', '.ww.', '..w.'], pal: { w: '#f2efe6', W: '#ffffff' } },
+  clover: { rows: ['...o...', '...o...', 'ooooooo', '.ooOoo.', '..ooo..', '.oo.oo.', 'oo...oo'], pal: { o: '#e8743a', O: '#f6c25c' } },
+  clam: { rows: ['.ppppp.', 'pPpPpPp', 'ppppppp', '.kkkkk.', '.ppppp.'], pal: { p: '#c9b8d8', P: '#e8dff0', k: '#4a3d5c' } },
+  chest: { rows: ['.tttttt.', 'tTTTTTTt', 'tyyyyyyt', 'tTTyyTTt', 'tTTTTTTt', 'tTTTTTTt', 'tttttttt'], pal: { t: '#4a2f1c', T: '#8a5530', y: '#d4a94a' } },
+  barrel: { rows: ['.tttttt.', 'tTTTTTTt', 'kkkkkkkk', 'tTTTTTTt', 'tTTTTTTt', 'kkkkkkkk', 'tTTTTTTt', '.tttttt.'], pal: { t: '#5a3d24', T: '#8a5530', k: '#3a3a3a' } },
+  tewak: { rows: ['..kk..', '.oooo.', 'oOoooo', 'oooooo', '.oooo.', '..ww..'], pal: { o: '#e8743a', O: '#f6a25c', k: '#3a2b1d', w: '#e9e1cc' } },
+  harpoon: {
+    rows: ['......ii', '.....iII', '....tii.', '...t....', '..t.....', '.t......', 't.......', '........'],
+    pal: { i: '#9aa3ad', I: '#d7dde2', t: '#8b5e34' },
+  },
+  netIcon: { rows: ['w.w.w.w.', '.w.w.w.w', 'w.w.w.w.', '.w.w.w.w', 'w.w.w.w.', '.w.w.w.w', 'tttttttt', '...tt...'], pal: { w: '#e9e1cc', t: '#8b5e34' } },
+  shovel: { rows: ['......t.', '.....t..', '....t...', '...t....', '.ii.....', 'iIii....', 'iiii....', '.ii.....'], pal: { i: '#9aa3ad', I: '#d7dde2', t: '#8b5e34' } },
   bag: { rows: ['..kkkk..', '.k....k.', '.bbbbbb.', 'bbBbbbbb', 'bbbbbbBb', 'bbbbbbbb', 'bBbbbbbb', '.bbbbbb.'], pal: { k: '#6b4a2b', b: '#c9a26c', B: '#a77c4c' } },
 };
 

@@ -14,7 +14,7 @@ export function computeLight(w, x0, y0, x1, y1, sources) {
       const t = tile(w, x, y);
       const solid = isSolid(w, x, y);
       if (solid) sky = 0;
-      else if (t === T.WATER) sky *= 0.93;
+      else if (t === T.WATER) sky *= 0.972;
       if (y < y0) continue;
       const i = (y - y0) * cw + (x - x0);
       L[i] = sky;

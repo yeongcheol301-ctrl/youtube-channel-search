@@ -1,108 +1,100 @@
-// 게임 데이터: 기획안 「시제품 1: 마을 뒷들」의 예시값.
+// 게임 데이터: 바닷가 마을의 화타. 낮에는 물속에서 약재를 따고, 밤에는 한의원을 연다.
 
 export const DAYS = 7;
-export const DAY_SECONDS = 180;
+export const DAY_SECONDS = 200;
 export const NIGHT_SECONDS = 180;
-export const MAX_STAMINA = 100;
+export const MAX_STAMINA = 100; // 숨
+export const BREATH_PER_SEC = 1.6;
 export const START_MONEY = 50;
-export const START_ARROWS = 20;
+export const START_ARROWS = 5; // 그물
 
-// weight 0 은 바구니 무게에 들어가지 않는다(나무·깃털처럼 따로 챙기는 것).
+// weight 0 은 바구니 무게에 들어가지 않는다. sell 이 있으면 밤 장터에 팔 수 있다.
 export const MATERIALS = {
-  mugwort: { name: '쑥', weight: 1 },
-  chrysanthemum: { name: '국화', weight: 1 },
-  plantain: { name: '질경이', weight: 1 },
-  dandelion: { name: '민들레', weight: 1 },
-  dropwort: { name: '미나리', weight: 1 },
-  bellflower: { name: '도라지', weight: 2 },
-  kudzu: { name: '칡뿌리', weight: 3 },
-  honey: { name: '꿀', weight: 2 },
-  cicada: { name: '매미 허물', weight: 0 },
-  pheasantFat: { name: '꿩 기름', weight: 2 },
-  feather: { name: '꿩 깃털', weight: 0 },
-  rabbitFur: { name: '토끼 털', weight: 1 },
-  whiteFur: { name: '흰 토끼 털', weight: 1, rare: true },
-  clover: { name: '네잎클로버', weight: 0, rare: true },
-  wood: { name: '나무', weight: 0 },
-  dirt: { name: '흙덩이', weight: 0 },
+  seaweed: { name: '미역', weight: 1 },
+  kelp: { name: '다시마', weight: 1 },
+  oyster: { name: '굴', weight: 1 },
+  seaCucumber: { name: '해삼', weight: 2 },
+  cuttlebone: { name: '오징어뼈', weight: 1 },
+  pollock: { name: '북어', weight: 2 },
+  rockfish: { name: '우럭', weight: 3, sell: 15 },
+  pearl: { name: '진주', weight: 0, rare: true, sell: 60 },
+  seahorse: { name: '해마', weight: 0, rare: true, sell: 80 },
+  sharkTooth: { name: '상어 이빨', weight: 0, rare: true, sell: 120 },
+  clover: { name: '불가사리', weight: 0, rare: true },
 };
 
 // unlock: 'start' | 'quest1' | {day}
 export const RECIPES = {
-  chrysTea: {
-    name: '국화차', inputs: { chrysanthemum: 3 }, main: 'chrysanthemum',
-    cures: '두통, 눈 충혈', price: 20, unlock: 'start',
+  seaweedSoup: {
+    name: '미역탕', inputs: { seaweed: 3 }, main: 'seaweed',
+    cures: '기운 없음, 산후 회복', price: 20, unlock: 'start',
   },
-  mugwortPill: {
-    name: '쑥꿀환', inputs: { mugwort: 3, honey: 1 }, main: 'mugwort',
-    cures: '배앓이, 속쓰림', price: 30, unlock: 'start',
+  oysterPorridge: {
+    name: '굴죽', inputs: { oyster: 2, seaweed: 1 }, main: 'oyster',
+    cures: '어지럼, 핏기 없음', price: 30, unlock: 'start',
   },
-  plantainSalve: {
-    name: '질경이 고약', inputs: { plantain: 3, pheasantFat: 1 }, main: 'plantain',
-    cures: '상처, 붓기', price: 40, unlock: 'quest1',
+  cuttlePowder: {
+    name: '해표초 가루', inputs: { cuttlebone: 2 }, main: 'cuttlebone',
+    cures: '속쓰림, 신물', price: 40, unlock: 'quest1',
   },
-  kudzuJuice: {
-    name: '칡즙', inputs: { kudzu: 2, dropwort: 1 }, main: 'kudzu',
-    cures: '숙취, 열', price: 35, unlock: { day: 3 },
+  pollockSoup: {
+    name: '북어탕', inputs: { pollock: 2, kelp: 1 }, main: 'pollock',
+    cures: '숙취, 속 울렁임', price: 35, unlock: { day: 3 },
   },
-  bellflowerSyrup: {
-    name: '도라지청', inputs: { bellflower: 2, honey: 1 }, main: 'bellflower',
-    cures: '기침, 목 아픔', price: 50, unlock: { day: 4 },
+  cucumberPill: {
+    name: '해삼환', inputs: { seaCucumber: 2, kelp: 1 }, main: 'seaCucumber',
+    cures: '허리·무릎 아픔', price: 50, unlock: { day: 4 },
   },
 };
 
-export const RECIPE_ORDER = ['chrysTea', 'mugwortPill', 'plantainSalve', 'kudzuJuice', 'bellflowerSyrup'];
+export const RECIPE_ORDER = ['seaweedSoup', 'oysterPorridge', 'cuttlePowder', 'pollockSoup', 'cucumberPill'];
 export const DOSES_PER_BREW = 3;
 export const MAX_MED_LEVEL = 3;
 export const MED_UPGRADE_MAIN = 5;
 export const MAX_MENU = 3;
 
 export const PATIENTS = {
-  scholar: { name: '선비', line: '글을 오래 읽었더니 머리가 지끈거리오', cure: 'chrysTea' },
-  child: { name: '아이', line: '배가 아파요...', cure: 'mugwortPill' },
-  farmer: { name: '농부', line: '낫질하다 손을 베었소', cure: 'plantainSalve' },
-  drunk: { name: '술꾼', line: '어제 좀... 아니 그냥 머리가 아프네', cure: 'kudzuJuice' },
-  elder: { name: '노인', line: '콜록콜록, 목이 칼칼하구먼', cure: 'bellflowerSyrup' },
-  zhangfei: { name: '장비', line: '어제 그 의원 양반! 속이 뒤집히오...', cure: 'kudzuJuice', special: true },
+  mother: { name: '아낙', line: '몸에 기운이 하나도 없어요...', cure: 'seaweedSoup' },
+  elder: { name: '노인', line: '자꾸 머리가 핑 도는구먼', cure: 'oysterPorridge' },
+  diver: { name: '해녀', line: '속이 쓰려서 물질을 못 하겠어', cure: 'cuttlePowder' },
+  drunk: { name: '술꾼', line: '어제 좀... 아니 그냥 머리가 아프네', cure: 'pollockSoup' },
+  fisher: { name: '어부', line: '그물 당기다 허리가 나갔소', cure: 'cucumberPill' },
+  zhangfei: { name: '장비', line: '어제 그 의원 양반! 속이 뒤집히오...', cure: 'pollockSoup', special: true },
 };
 
 export const UPGRADES = {
-  basket: { name: '바구니', desc: '무게 한도 20 → 30', money: 100, items: { rabbitFur: 2 } },
-  hoe: { name: '괭이', desc: '흙 파기 0.5초 → 0.25초', money: 150, items: { wood: 5 } },
-  bow: { name: '활', desc: '화살이 50% 더 멀리, 덜 떨어짐', money: 200, items: { feather: 3 } },
+  gourd: { name: '박 숨주머니', desc: '숨 100 → 150', money: 120, items: { oyster: 2 } },
+  fins: { name: '물갈퀴', desc: '헤엄 속도 +30%', money: 150, items: { kelp: 3 } },
+  harpoon: { name: '쇠작살', desc: '작살 위력 2배', money: 200, items: { rockfish: 2 } },
+  lantern: { name: '물속 등불', desc: '깊은 곳이 밝게 보임', money: 150, items: { cuttlebone: 2 } },
+  basket: { name: '망사리', desc: '무게 한도 20 → 30', money: 100, items: { seaweed: 4 } },
 };
 
-export const ARROW_PACK = { count: 10, money: 20 };
-export const ARROW_CRAFT = { count: 5, items: { feather: 1, wood: 1 } };
+export const ARROW_PACK = { count: 5, money: 20 }; // 그물 5개
 export const LADDER_WOOD = 1;
 export const BRIDGE_WOOD = 1;
 
-// 하루에 땅 위·땅속에 새로 생기는 재료 개수.
-export const DAILY_SPAWNS = {
-  mugwort: 8, chrysanthemum: 6, plantain: 6, dandelion: 4, dropwort: 5,
-  bellflower: 4, kudzu: 3, cicada: 3, tree: 6,
-};
-export const ANIMALS_PER_DAY = { rabbit: 3, pheasant: 3 };
-export const WHITE_RABBIT_CHANCE = 0.2;
-export const CLOVER_CHANCE = 0.1;
+// 날마다 새로 자라는 약재 수
+export const DAILY_SPAWNS = { seaweed: 9, kelp: 7, oyster: 7, seaCucumber: 5 };
+export const FISH_PER_DAY = { pollock: 8, rockfish: 4, cuttlefish: 3, seahorse: 1, jelly: 6, moray: 2, shark: 1 };
+export const CLOVER_CHANCE = 0.35;
 export const CLOVER_HQ_COUNT = 5;
 
-// 청낭서: 화타의 의서. 조각을 찾으면 능력이 생긴다.
+// 청낭서: 화타의 의서. 싣고 가던 배가 가라앉아 상자 속에 흩어졌다.
 export const PAGES = {
-  1: { name: '청낭서 1장 · 채약편', perk: '약초를 캘 때 초록칸이 넓어집니다' },
+  1: { name: '청낭서 1장 · 채약편', perk: '약재를 딸 때 초록칸이 넓어집니다' },
   2: { name: '청낭서 2장 · 탕전편', perk: '약을 달일 때 초록칸이 넓어집니다' },
-  3: { name: '청낭서 3장 · 양생편', perk: '기력이 30 늘어납니다' },
+  3: { name: '청낭서 3장 · 양생편', perk: '숨이 30 늘어납니다' },
 };
 
-// 땅속 항아리. 깨면 안의 것을 얻는다. 지도에 한 번만 있다(날마다 다시 생기지 않음).
+// 바닷속 상자(난파선 짐). x 자리 바닥에 반쯤 묻혀 있다. 지도에 한 번만 있다.
 export const POTS = [
-  { x: 44, y: 34, loot: { money: 12 } },
-  { x: 74, y: 36, loot: { arrows: 6 } },
-  { x: 97, y: 37, loot: { page: 1 } },
-  { x: 112, y: 38, loot: { item: 'honey', n: 2 } },
-  { x: 150, y: 30, loot: { money: 20 } },
-  { x: 166, y: 35, loot: { page: 2 } },
-  { x: 188, y: 29, loot: { arrows: 8 } },
-  { x: 200, y: 38, loot: { money: 30 } },
-  { x: 218, y: 33, loot: { page: 3 } },
+  { x: 30, loot: { money: 15 } },
+  { x: 56, loot: { arrows: 3 } },
+  { x: 66, loot: { page: 1 } },
+  { x: 80, loot: { item: 'pearl', n: 1 } },
+  { x: 101, loot: { money: 30 } },
+  { x: 114, loot: { page: 2 } },
+  { x: 128, loot: { item: 'seahorse', n: 1 } },
+  { x: 134, loot: { page: 3 } },
 ];

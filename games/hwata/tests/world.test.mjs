@@ -1,79 +1,78 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  W, H, T, makeWorld, tile, setTile, isSolid, canDig, surfaceY, isExposed, spawnDaily, ZONES,
+  W, H, SEA, T, ZONES, makeWorld, tile, setTile, isSolid, isWater, canDig, floorY, chestSpots, spawnDaily,
 } from '../src/world.js';
+import { POTS } from '../src/data.js';
 
 const seq = (seed = 1) => { let x = seed; return () => { x = (x * 16807) % 2147483647; return x / 2147483647; }; };
 
-test('world is 240 by 50 with stone at the bottom', () => {
+test('sea is 160 wide and 120 deep with air above the surface', () => {
   const w = makeWorld();
-  assert.equal(W, 240);
-  assert.equal(H, 50);
-  assert.equal(tile(w, 100, H - 1), T.STONE);
-  assert.equal(isSolid(w, -1, 10), true); // 맵 밖은 벽
+  assert.equal(W, 160);
+  assert.equal(H, 120);
+  assert.equal(tile(w, 40, SEA - 1), T.AIR);
+  assert.equal(isWater(w, 40, SEA), true);
+  assert.equal(tile(w, 40, H - 1), T.ROCK);
 });
 
-test('the hill is six tiles above the field', () => {
+test('the boat floats over water near the shore', () => {
   const w = makeWorld();
-  assert.equal(surfaceY(w, 100) - surfaceY(w, 160), 6);
+  assert.equal(isWater(w, 14, SEA + 1), true);
+  assert.ok(floorY(w, 2) <= SEA); // 모래사장
 });
 
-test('the stream holds water', () => {
+test('the sea gets deeper toward the trench', () => {
   const w = makeWorld();
-  const x = 128;
-  assert.equal(tile(w, x, surfaceY(w, x) - 1), T.WATER);
+  const shallow = floorY(w, 25), reef = floorY(w, 70), deep = floorY(w, 110), trench = floorY(w, 128);
+  assert.ok(shallow < reef && reef < deep && deep < trench, `${shallow} ${reef} ${deep} ${trench}`);
+  assert.ok(trench > 100);
 });
 
-test('the fallen log blocks the way and cannot be dug', () => {
+test('sand can be dug, rock cannot', () => {
   const w = makeWorld();
-  const x = ZONES.log[0];
-  const y = surfaceY(w, x - 2) - 1;
-  assert.equal(tile(w, x, y), T.LOG);
-  assert.equal(canDig(w, x, y), false);
-  assert.equal(canDig(w, 100, surfaceY(w, 100)), true);
-  assert.equal(canDig(w, 100, H - 1), false);
+  const y = floorY(w, 25);
+  assert.equal(tile(w, 25, y), T.SAND);
+  assert.equal(canDig(w, 25, y), true);
+  assert.equal(canDig(w, 25, H - 1), false);
+  setTile(w, 25, y, T.WATER);
+  assert.equal(isSolid(w, 25, y), false);
 });
 
-test('dug tiles stay dug', () => {
+test('every chest is half buried on the sea floor', () => {
   const w = makeWorld();
-  const y = surfaceY(w, 60);
-  setTile(w, 60, y, T.AIR);
-  assert.equal(isSolid(w, 60, y), false);
+  const spots = chestSpots(w);
+  assert.equal(spots.length, POTS.length);
+  for (const c of spots) {
+    assert.equal(tile(w, c.x, c.y), T.CHEST);
+    assert.equal(isWater(w, c.x, c.y - 1), true);
+  }
 });
 
-test('a root is exposed only after digging next to it', () => {
-  const w = makeWorld();
-  const x = 160, y = surfaceY(w, x) + 3;
-  setTile(w, x, y, T.ROOT);
-  assert.equal(isExposed(w, x, y), false);
-  setTile(w, x + 1, y, T.AIR);
-  assert.equal(isExposed(w, x, y), true);
-});
-
-test('daily spawns place the planned amounts in their zones', () => {
+test('daily herbs grow in their zones on the floor', () => {
   const w = makeWorld();
   const props = spawnDaily(w, 1, seq());
-  const n = (type) => props.filter((p) => p.type === type).length;
-  assert.equal(n('mugwort'), 8);
-  assert.equal(n('bellflower'), 4);
-  assert.equal(n('kudzu'), 3);
-  for (const p of props.filter((q) => q.type === 'kudzu')) {
-    assert.equal(tile(w, p.x, p.y), T.ROOT);
-    assert.ok(p.y - surfaceY(w, p.x) >= 7);
-  }
-  for (const p of props.filter((q) => q.type === 'mugwort')) {
-    assert.ok(p.x >= ZONES.field[0] && p.x <= ZONES.field[1]);
+  const n = (t) => props.filter((p) => p.type === t).length;
+  assert.equal(n('seaweed'), 9);
+  assert.equal(n('kelp'), 7);
+  assert.equal(n('oyster'), 7);
+  assert.equal(n('seaCucumber'), 5);
+  for (const p of props.filter((q) => q.type === 'seaweed')) {
+    assert.ok(p.x >= ZONES.shallow[0] && p.x <= ZONES.shallow[1]);
+    assert.equal(isWater(w, p.x, p.y), true);
     assert.equal(isSolid(w, p.x, p.y + 1), true);
-    assert.equal(isSolid(w, p.x, p.y), false);
+  }
+  for (const p of props.filter((q) => q.type === 'oyster')) {
+    assert.equal(isWater(w, p.x, p.y), true);
+    assert.equal(tile(w, p.x + p.side, p.y), T.ROCK);
   }
 });
 
-test('old roots are cleared before new ones grow', () => {
+test('pearl clams are buried in deep sand and replaced each day', () => {
   const w = makeWorld();
   spawnDaily(w, 1, seq(3));
   spawnDaily(w, 2, seq(4));
-  let roots = 0;
-  for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (tile(w, x, y) === T.ROOT) roots++;
-  assert.equal(roots, 7);
+  let clams = 0;
+  for (let i = 0; i < w.tiles.length; i++) if (w.tiles[i] === T.CLAM) clams++;
+  assert.equal(clams, 3);
 });

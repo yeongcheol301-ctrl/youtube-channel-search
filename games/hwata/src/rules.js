@@ -1,7 +1,7 @@
 // 게임 규칙: 화면 없이 계산만 한다. 행동은 {ok, reason?}를 돌려주고 실패하면 상태를 바꾸지 않는다.
 import {
   MATERIALS, RECIPES, PATIENTS, UPGRADES, START_MONEY, START_ARROWS, MAX_STAMINA,
-  DOSES_PER_BREW, MAX_MED_LEVEL, MED_UPGRADE_MAIN, CLOVER_HQ_COUNT, ARROW_PACK, ARROW_CRAFT, PAGES,
+  DOSES_PER_BREW, MAX_MED_LEVEL, MED_UPGRADE_MAIN, CLOVER_HQ_COUNT, ARROW_PACK, PAGES,
 } from './data.js';
 import { T } from './world.js';
 
@@ -16,8 +16,8 @@ export function newState() {
     stamina: MAX_STAMINA,
     rep: 0,
     inv: {},
-    meds: { chrysTea: newMed(), mugwortPill: newMed() },
-    menu: ['chrysTea', 'mugwortPill'],
+    meds: { seaweedSoup: newMed(), oysterPorridge: newMed() },
+    menu: ['seaweedSoup', 'oysterPorridge'],
     upgrades: {},
     flags: {},
     luck: 0,
@@ -94,15 +94,32 @@ export function collapseLoss(s) {
 
 export const hasPage = (s, n) => (s.pages ?? []).includes(n);
 
+// 숨의 최대치
 export function maxStamina(s) {
-  return MAX_STAMINA + (hasPage(s, 3) ? 30 : 0);
+  return MAX_STAMINA + (hasPage(s, 3) ? 30 : 0) + (s.upgrades.gourd ? 50 : 0);
+}
+
+export function swimSpeed(s) {
+  return 4.5 * (s.upgrades.fins ? 1.3 : 1) * (isOverweight(s) ? 0.65 : 1);
+}
+
+export const harpoonDamage = (s) => (s.upgrades.harpoon ? 2 : 1);
+
+// 귀한 것 하나를 밤 장터에 판다
+export function sellItem(s, id) {
+  const price = MATERIALS[id]?.sell;
+  if (!price || count(s, id) < 1) return fail('팔 것이 없습니다');
+  const hq = takeItems(s, id, 1) > 0;
+  const coins = Math.round(price * (hq ? 1.5 : 1));
+  s.money += coins;
+  return { ok: true, coins };
 }
 
 export function herbZone(s) {
   return hasPage(s, 1) ? [0.56, 0.9] : [0.62, 0.84];
 }
 
-// 항아리 안의 것을 준다. loot: {money} | {arrows} | {item, n} | {page}
+// 상자 안의 것을 준다. loot: {money} | {arrows} | {item, n} | {page}
 export function openPot(s, loot) {
   if (loot.money) {
     s.money += loot.money;
@@ -110,22 +127,22 @@ export function openPot(s, loot) {
   }
   if (loot.arrows) {
     s.arrows += loot.arrows;
-    return { ok: true, text: `화살 ${loot.arrows}발` };
+    return { ok: true, text: `그물 ${loot.arrows}개` };
   }
   if (loot.item) {
     for (let i = 0; i < loot.n; i++) addItem(s, loot.item);
     return { ok: true, text: `${MATERIALS[loot.item].name} ${loot.n}개` };
   }
   s.pages ??= [];
-  if (hasPage(s, loot.page)) return { ok: false, text: '빈 항아리' };
+  if (hasPage(s, loot.page)) return { ok: false, text: '빈 상자' };
   s.pages.push(loot.page);
   return { ok: true, page: loot.page, text: `${PAGES[loot.page].name}! ${PAGES[loot.page].perk}` };
 }
 
-const HARDNESS = { [T.GRASS]: 0.35, [T.DIRT]: 0.45, [T.POT]: 0.3, [T.LADDER]: 0.15, [T.PLANK]: 0.15 };
+const HARDNESS = { [T.SAND]: 0.4, [T.CHEST]: 0.35, [T.CLAM]: 0.3 };
 
 export function digHardness(s, t) {
-  return (HARDNESS[t] ?? 0.45) * (s.upgrades.hoe ? 0.5 : 1);
+  return HARDNESS[t] ?? 0.4;
 }
 
 export function spendStamina(s, n) {
@@ -239,28 +256,11 @@ export function buyUpgrade(s, key) {
   return { ok: true };
 }
 
-export function digTime(s) {
-  return s.upgrades.hoe ? 0.25 : 0.5;
-}
-
 export function buyArrows(s) {
   if (s.money < ARROW_PACK.money) return fail('돈이 모자랍니다');
   s.money -= ARROW_PACK.money;
   s.arrows += ARROW_PACK.count;
   return { ok: true };
-}
-
-export function craftArrows(s) {
-  if (!hasItems(s, ARROW_CRAFT.items)) return fail('깃털과 나무가 필요합니다');
-  for (const [k, n] of Object.entries(ARROW_CRAFT.items)) takeItems(s, k, n);
-  s.arrows += ARROW_CRAFT.count;
-  return { ok: true };
-}
-
-export function useWood(s, n) {
-  if (count(s, 'wood') < n) return false;
-  takeItems(s, 'wood', n);
-  return true;
 }
 
 export function giveItem(s, id) {
