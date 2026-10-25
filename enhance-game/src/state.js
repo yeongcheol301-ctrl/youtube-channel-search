@@ -30,7 +30,7 @@ export function newGame(meta = newMeta()) {
     minerals: 150 + 300 * (meta.perm.start ?? 0),
     weapons: [],
     nextId: 1,
-    building: { tier: 0, hp, hpLeft: hp, t: 0 },
+    building: { tier: 0, unlocked: 0, hp, hpLeft: hp, t: 0 },
     bestDps: 0,
     bestDpsAt: 0,
     lastClearAt: 0,
@@ -44,12 +44,10 @@ export function newGame(meta = newMeta()) {
 const find = (s, id) => s.weapons.find((w) => w.id === id);
 const discount = (s) => Math.min(0.5, 0.05 * permLevel(s, 'discount'));
 
-// 같은 종류를 많이 가질수록 한 자루 값이 12%씩 오른다(숫자로만 밀어붙이지 않게).
-export const BUY_GROWTH = 1.12;
-
+// 값은 그 무기를 가진 자루 수에 비례한다: 1자루째 100, 2자루째 200, 10자루째 1,000.
 export function buyPrice(s, type) {
   const owned = s.weapons.filter((w) => w.type === type).length;
-  return Math.round(WEAPONS[type].price * (1 - discount(s)) * Math.pow(BUY_GROWTH, owned));
+  return Math.round(WEAPONS[type].price * (1 - discount(s)) * (owned + 1));
 }
 
 function discover(s, w) {
@@ -226,19 +224,42 @@ export function promoteAll(s) {
   }
 }
 
+// ---- 광맥 ----
+const unlockedVein = (s) => s.building.unlocked ?? s.building.tier;
+
 export function buildingUpgradeCost(s) {
-  return Math.round(buildingStats(s.building.tier + 1).reward * 10);
+  return Math.round(buildingStats(unlockedVein(s) + 1).reward * 10);
 }
 
+function moveTo(s, tier) {
+  s.building.tier = tier;
+  s.building.hp = buildingStats(tier).hp;
+  s.building.hpLeft = s.building.hp;
+  s.building.t = 0;
+}
+
+// 다음 등급 광맥을 개척하고 그리로 옮긴다.
 export function upgradeBuilding(s) {
   const cost = buildingUpgradeCost(s);
   if (s.minerals < cost) return fail('미네랄 부족');
   s.minerals -= cost;
-  s.building.tier += 1;
-  s.building.hp = buildingStats(s.building.tier).hp;
-  s.building.hpLeft = s.building.hp;
-  s.building.t = 0;
+  s.building.unlocked = unlockedVein(s) + 1;
+  moveTo(s, s.building.unlocked);
   return { ok: true };
+}
+
+export function selectVein(s, tier) {
+  if (!(tier >= 0 && tier <= unlockedVein(s))) return fail('아직 개척하지 않은 광맥');
+  moveTo(s, tier);
+  return { ok: true };
+}
+
+export const veinIncome = (s, tier) => mineralsPerSec(miners(s), tier, ctxOf(s));
+
+export function bestVein(s) {
+  let best = 0;
+  for (let t = 1; t <= unlockedVein(s); t++) if (veinIncome(s, t) > veinIncome(s, best)) best = t;
+  return best;
 }
 
 // 평소엔 전부 채집하고, 보스에 도전할 때만 전원이 출동한다.
@@ -266,7 +287,7 @@ export function tapMine(s) {
 export function tick(s, seconds) {
   const rate = incomePerSec(s);
   s.minerals += rate * seconds;
-  const dps = buildingDps(miners(s), ctxOf(s));
+  const dps = buildingDps(miners(s), ctxOf(s), s.building.tier);
   const b = s.building;
   if (dps > 0) {
     const cycle = Math.max(b.hp / dps, 0.2);

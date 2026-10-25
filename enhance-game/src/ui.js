@@ -1,12 +1,12 @@
 // 화면: 상태를 읽어 그리고, 버튼은 data-act로 처리한다.
 import {
   WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS, GRADE_CAPS, TRAIT_LEVELS, GRADE_MULT,
-  successRate, destroyChance, formatNumber, weaponAttack, weaponHitsPerSec, partyArmorBreak, bossFight, buildingStats, buildingDps,
+  mineHit, successRate, destroyChance, formatNumber, weaponAttack, weaponHitsPerSec, partyArmorBreak, bossFight, buildingStats, buildingDps,
 } from './rules.js';
 import {
   load, save, buy, enhance, sell, assign, pickTrait, upgradeBuilding, promote, promoteAll, canPromote, promoteCost, promoteMaterial, atCap,
   buildingUpgradeCost, tick, applyOffline, incomePerSec, ctxOf, fighters, miners, buyPrice,
-  enhancePrice, sellValue, permLevel, tapMine, tapGain, craftProtect, fillPity, SHARD_COST, PITY_FILL,
+  enhancePrice, sellValue, permLevel, tapMine, tapGain, craftProtect, fillPity, SHARD_COST, PITY_FILL, selectVein, bestVein, veinIncome,
 } from './state.js';
 import { dayKey, canAttend, attend, attendSlot, track, missionRows, claimMission, dailyAlert, ATTEND_REWARDS } from './daily.js';
 import {
@@ -283,23 +283,32 @@ function renderForge() {
 // ---- 채집장 ----
 // 무기 전부가 가운데 목표를 빙 둘러싸고 각자 공속대로 휘두른다. 겹쳐도 그대로 그린다(성능 때문에 80자루까지).
 const ARENA_MAX = 80;
-function strikersHtml(list, fast = 1) {
+// tier를 주면 그 광맥을 못 뚫는 무기는 회색으로 튕긴다.
+function strikersHtml(list, fast = 1, tier = null) {
   const shown = list.slice(0, ARENA_MAX);
   const n = shown.length;
+  const ctx = ctxOf(s);
   return shown.map((w, i) => {
+    const bounce = tier !== null && mineHit(w, tier, ctx) <= 0;
     const dur = Math.min(1.6, Math.max(0.4, 1 / weaponHitsPerSec(w))) / fast;
     const ring = n > 10 ? (i % 3 === 0 ? 'r-in' : i % 3 === 1 ? 'r-mid' : '') : '';
     const angle = (360 / n) * i + (i % 2 ? 7 : 0);
-    return `<span class="striker ${ring}" style="--a:${angle.toFixed(1)}deg"><span class="arm" style="--dur:${dur.toFixed(2)}s;--delay:${((i * 0.29) % dur).toFixed(2)}s"><span class="blade">${art(w.type, w.grade, w.level, 48)}</span></span></span>`;
+    return `<span class="striker ${ring} ${bounce ? 'bounce' : ''}" style="--a:${angle.toFixed(1)}deg"><span class="arm" style="--dur:${dur.toFixed(2)}s;--delay:${((i * 0.29) % dur).toFixed(2)}s"><span class="blade">${art(w.type, w.grade, w.level, 48)}</span></span></span>`;
   }).join('');
 }
 
+const scratchers = (tier) => miners(s).filter((w) => mineHit(w, tier, ctxOf(s)) > 0).length;
+
 function renderArena() {
-  const list = miners(s).sort((a, b) => b.level - a.level);
+  const tier = s.building.tier;
+  const list = miners(s).sort((a, b) => b.grade - a.grade || b.level - a.level);
   const n = list.length;
-  return `<section class="arena ${n ? 'busy' : ''}">
+  const ok = scratchers(tier);
+  return `<section class="arena ${ok ? 'busy' : ''}">
+    <p class="vein-name">${buildingStats(tier).name} <small>단단함 ${fmt(buildingStats(tier).armor)}</small></p>
+    ${n && ok < n ? `<p class="bounce-note">${n - ok}자루는 너무 약해 튕겨 나갑니다</p>` : ''}
     <div class="arena-ring">
-      ${strikersHtml(list)}
+      ${strikersHtml(list, 1, tier)}
       <button type="button" class="tap-vein" data-act="tap" aria-label="광맥 캐기"><img class="art" src="assets/building.webp" width="120" height="120" alt=""><span class="tap-hint">눌러서 캐기 +${fmt(tapGain(s))}</span></button>
     </div>
     ${n > ARENA_MAX ? `<p class="note">그 밖에 ${n - ARENA_MAX}자루가 더 캐고 있습니다</p>` : ''}
@@ -307,41 +316,45 @@ function renderArena() {
   </section>`;
 }
 
+function veinRow(t, best, locked = false) {
+  const st = buildingStats(t);
+  const inc = veinIncome(s, t);
+  const ok = scratchers(t), n = miners(s).length;
+  const here = t === s.building.tier;
+  const action = locked ? btn('upgrade', `개척 ${fmt(buildingUpgradeCost(s))}`, { cls: 'gold', disabled: s.minerals < buildingUpgradeCost(s) })
+    : here ? '<span class="pill ok">채집 중</span>' : btn('vein', '이동', { data: { tier: t } });
+  return `<li class="vein ${here ? 'here' : ''} ${locked ? 'locked' : ''}">
+    <div><span><b>${st.name}</b>${!locked && t === best && !here ? '<em class="rec">추천</em>' : ''}</span>
+      <small>단단함 ${fmt(st.armor)} · 효율 ×${st.eff.toFixed(1)} · 캘 수 있는 무기 <span class="${ok ? '' : 'zero'}">${ok}/${n}</span></small></div>
+    <span class="inc ${inc ? '' : 'zero'}">${inc ? `+${fmt(inc)}/초` : '못 캠'}</span>
+    ${action}
+  </li>`;
+}
+
 function renderMine() {
   const b = s.building;
   const st = buildingStats(b.tier);
-  const cost = buildingUpgradeCost(s);
-  const next = buildingStats(b.tier + 1);
+  const unlocked = b.unlocked ?? b.tier;
+  const best = bestVein(s);
+  const rows = Array.from({ length: unlocked + 1 }, (_, t) => veinRow(unlocked - t, best)).join('');
   return `
     ${renderArena()}
     <section class="mine">
       <div>
-        <p class="grade-tag">미네랄 광맥 ${b.tier + 1}단계</p>
+        <p class="grade-tag">${st.name} · ${b.tier + 1}등급</p>
         <div class="hp"><span id="mine-hp"></span></div>
         <dl class="stats">
-          <div><dt>체력</dt><dd>${fmt(st.hp)}</dd></div>
-          <div><dt>DPS 1당</dt><dd>${st.eff.toFixed(1)}/초</dd></div>
+          <div><dt>단단함</dt><dd>${fmt(st.armor)}</dd></div>
+          <div><dt>캐는 무기</dt><dd>${scratchers(b.tier)}/${miners(s).length}</dd></div>
           <div><dt>초당 수입</dt><dd>${fmt(incomePerSec(s))}</dd></div>
         </dl>
-        <p class="note">채집 무기 ${miners(s).length}자루가 광맥을 부수고 있습니다. 도끼는 두 배로 부숩니다. 앱을 꺼도 최대 8시간치가 쌓입니다.</p>
+        <p class="note">한 방 피해가 단단함보다 약하면 튕겨 나가 못 캡니다. 높은 광맥일수록 단단하지만 한 방당 미네랄이 많습니다. 도끼는 두 배로 캐고 방깎만큼 단단함을 무시합니다.</p>
       </div>
     </section>
-    <section class="dps-card">
-      <h3 class="sec">DPS 안내</h3>
-      <dl class="stats">
-        <div><dt>총 DPS</dt><dd>${fmt(battleDps(s))}</dd></div>
-        <div><dt>초당 미네랄</dt><dd>${fmt(incomePerSec(s))}</dd></div>
-        <div><dt>보스 필요 DPS</dt><dd>${fmt(nextBoss(s).hp / FIGHT_SECONDS)}</dd></div>
-      </dl>
-      <p class="note">초당 미네랄 = 총 DPS × 광맥 효율(DPS 1당 ${buildingStats(b.tier).eff.toFixed(1)}). 무기가 세질수록 정직하게 더 법니다. ${nextBoss(s).stage}단계 보스는 체력 ${fmt(nextBoss(s).hp)}이라 30초 안에 잡으려면 DPS ${fmt(nextBoss(s).hp / FIGHT_SECONDS)}이 필요합니다(유형별 조건 별도).</p>
-    </section>
-    <button type="button" class="enhance-btn mint" data-act="upgrade" ${s.minerals < cost ? 'disabled' : ''}>
-      <span class="eb-title">광맥 업그레이드</span>
-      <span class="eb-meta">${fmt(cost)} 미네랄 · 효율 ${buildingStats(b.tier).eff.toFixed(1)} → ${next.eff.toFixed(1)}</span>
-    </button>
-    <p class="note">업그레이드하면 같은 DPS로 더 많은 미네랄을 캡니다.</p>
-    <h3 class="sec">채집 중인 무기</h3>
-    <div class="tiles">${miners(s).map(weaponTile).join('') || '<p class="note">강화장에서 무기를 골라 [채집으로 보내기]를 누르세요.</p>'}</div>`;
+    ${best !== b.tier ? btn('vein', `${buildingStats(best).name}(으)로 옮기면 초당 +${fmt(veinIncome(s, best))}`, { cls: 'big gold', data: { tier: best } }) : ''}
+    <h3 class="sec">광맥 고르기 <small>강해질수록 위로</small></h3>
+    <ol class="veins">${veinRow(unlocked + 1, best, true)}${rows}</ol>
+    <p class="note">앱을 꺼도 지금 광맥에서 최대 8시간치가 쌓입니다.</p>`;
 }
 
 // ---- 보스 ----
@@ -833,7 +846,15 @@ const handlers = {
     const next = s.weapons.find((x) => x.pendingTraits);
     ui.modal = next ? { kind: 'trait', id: next.id } : null;
   },
-  upgrade: () => { const r = upgradeBuilding(s); toast(r.ok ? `광맥 ${s.building.tier + 1}단계!` : r.reason); },
+  upgrade: () => {
+    const r = upgradeBuilding(s);
+    if (!r.ok) return toast(r.reason);
+    clang('up'); sparks('big', '#6fd6c4'); buzz([20, 30, 40]);
+    const ok = scratchers(s.building.tier);
+    toast(`${buildingStats(s.building.tier).name} 개척! ${ok ? `${ok}자루가 캘 수 있습니다` : '아직 캘 수 있는 무기가 없어요. 더 강화하세요'}`);
+    if (!ok) selectVein(s, bestVein(s));
+  },
+  vein: (d) => { const r = selectVein(s, Number(d.tier)); toast(r.ok ? `${buildingStats(s.building.tier).name}(으)로 이동 · 초당 +${fmt(incomePerSec(s))}` : r.reason); },
   challenge: () => startFight(),
   dps: () => {
     const before = s.bestDps; const d = measureDps(s, Date.now());

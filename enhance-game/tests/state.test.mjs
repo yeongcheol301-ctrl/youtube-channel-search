@@ -154,11 +154,12 @@ test('promoteAll promotes every eligible weapon', async () => {
   assert.equal(s.weapons.length, 2);
 });
 
-test('each extra weapon of a type costs 12% more', async () => {
+test('buy price grows in proportion to swords owned', async () => {
   const { buyPrice } = await import('../src/state.js');
   const s = newGame(); s.minerals = 1e9;
   const p0 = buyPrice(s, 'sword'); buy(s, 'sword');
-  assert.equal(buyPrice(s, 'sword'), Math.round(p0 * 1.12));
+  assert.equal(buyPrice(s, 'sword'), 2 * p0, 'price is proportional to how many you own');
+  buy(s, 'sword'); assert.equal(buyPrice(s, 'sword'), 3 * p0);
 });
 
 test('each grade grants traits at +5 and +10, counting earlier grades', async () => {
@@ -183,4 +184,16 @@ test('a destroyed weapon leaves abyss shards; a protect ticket turns destroy int
   assert.equal(saved.result, 'saved'); assert.equal(b.level, 6); assert.equal(s.meta.protect, 0); assert.ok(s.weapons.includes(b));
   assert.equal(fillPity(s, b.id).ok, true); assert.equal(b.pity, 60);
   assert.equal(fillPity(s, b.id).ok, false, 'out of shards');
+});
+
+test('veins: open the next vein, then switch freely between opened ones', async () => {
+  const { selectVein, bestVein, buildingUpgradeCost } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e12;
+  assert.equal(selectVein(s, 1).ok, false, 'not opened yet');
+  assert.equal(upgradeBuilding(s).ok, true);
+  assert.equal(s.building.tier, 1); assert.equal(s.building.unlocked, 1);
+  assert.equal(selectVein(s, 0).ok, true); assert.equal(s.building.tier, 0);
+  buy(s, 'sword');
+  assert.equal(bestVein(s), 0, 'a +0 sword cannot scratch the copper vein, so stay on the soft one');
+  assert.ok(buildingUpgradeCost(s) > 0);
 });

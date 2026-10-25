@@ -436,6 +436,28 @@ body.suspense .enhance-btn { pointer-events: none; animation: throb 0.3s ease-in
 /* 자랑 카드 */
 .brag img { display: block; width: 100%; height: auto; border-radius: 10px; box-shadow: 0 10px 30px rgba(0,0,0,0.6); -webkit-user-select: auto; user-select: auto; -webkit-touch-callout: default; }
 .row .btn { flex: 1 1 28%; }
+/* 광맥 등급 */
+.mine { grid-template-columns: 1fr; }
+.vein-name { margin: 0; text-align: center; font-family: var(--font-head); font-weight: 800; color: var(--mineral); font-size: 15px; }
+.vein-name small { font-family: var(--font-num); margin-left: 6px; }
+.bounce-note { margin: 0; text-align: center; font-size: 12px; color: var(--muted); }
+.striker.bounce .blade img.art { filter: grayscale(1) brightness(0.55); }
+.striker.bounce .arm::before, .striker.bounce .arm::after { display: none; }
+.striker.bounce .arm { animation-name: bounceArm; }
+@keyframes bounceArm { 0%, 100% { transform: translateY(var(--R)); } 55% { transform: translateY(calc(var(--H) + 10px)); } 68% { transform: translateY(calc(var(--R) + 6px)); } }
+.veins { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; }
+.vein { display: grid; grid-template-columns: 1fr auto 84px; gap: 10px; align-items: center; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: linear-gradient(180deg, #161512, #0f0d0b); }
+.vein > div { display: grid; min-width: 0; }
+.vein b { font-family: var(--font-head); font-size: 14.5px; }
+.vein small { font-size: 11.5px; }
+.vein .zero { color: var(--no); }
+.vein .inc { font-family: var(--font-num); font-size: 13px; color: var(--mineral); white-space: nowrap; }
+.vein .btn { padding: 7px 4px; font-size: 12.5px; }
+.vein .pill { text-align: center; }
+.vein.here { border-color: var(--mineral); box-shadow: 0 0 16px -8px var(--mineral); }
+.vein.locked { border-style: dashed; border-color: #6a5220; }
+.vein.locked .inc.zero { color: var(--muted); }
+.rec { font-style: normal; font-size: 10.5px; font-weight: 800; color: #1a0f05; background: var(--gold); border-radius: 3px; padding: 0 5px; margin-left: 6px; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>

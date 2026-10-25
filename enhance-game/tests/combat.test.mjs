@@ -77,8 +77,8 @@ test('minerals scale linearly with mining DPS', () => {
   assert.ok(Math.abs(mineralsPerSec(strong, 0, ctx) / buildingDps(strong, ctx) - mineralsPerSec(one, 0, ctx) / buildingDps(one, ctx)) < 1e-9);
 });
 
-test('a building upgrade raises minerals per DPS', () => {
-  const one = [w('sword', { level: 5 })];
+test('a harder vein pays more per hit for a weapon strong enough to bite', () => {
+  const one = [w('sword', { grade: 1, level: 5 })];
   assert.ok(mineralsPerSec(one, 1, ctx) > mineralsPerSec(one, 0, ctx));
 });
 
@@ -86,4 +86,23 @@ test('a building upgrade raises minerals per DPS', () => {
 test('attack grows with level, and promotion to +0 of the next grade beats +10', () => {
   assert.ok(weaponAttack(w('sword', { level: 10 }), ctx) > weaponAttack(w('sword'), ctx));
   assert.ok(weaponAttack(w('sword', { grade: 1, level: 0 }), ctx) > 1.2 * weaponAttack(w('sword', { level: 10 }), ctx));
+});
+
+test('hard veins ignore weak weapons no matter how many', async () => {
+  const { buildingStats: vein, mineHit } = await import('../src/rules.js');
+  const hard = 4;
+  assert.ok(vein(hard).armor > 0 && vein(0).armor === 0);
+  const weak = Array.from({ length: 50 }, (_, i) => w('sword', { id: i + 1 }));
+  assert.equal(mineHit(weak[0], hard, ctx), 0, 'a +0 sword just bounces off');
+  assert.equal(mineralsPerSec(weak, hard, ctx), 0);
+  const strong = [w('sword', { grade: 2, level: 5 })];
+  assert.ok(mineralsPerSec(strong, hard, ctx) > 0);
+  assert.ok(mineralsPerSec(strong, hard, ctx) > mineralsPerSec(strong, 0, ctx), 'strong weapons earn more on the harder vein');
+});
+
+test('axe armor break helps it bite into hard veins', async () => {
+  const { mineHit } = await import('../src/rules.js');
+  const axe = w('axe', { level: 0 }), sword = w('sword', { level: 4 });
+  assert.ok(weaponAttack(sword, ctx) > weaponAttack(axe, ctx) / 3);
+  assert.ok(mineHit(axe, 1, ctx) > 0);
 });

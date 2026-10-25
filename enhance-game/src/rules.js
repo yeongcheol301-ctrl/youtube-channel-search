@@ -191,20 +191,34 @@ export function bossFight(weapons, boss, ctx) {
   return { damage, hits, killed, dps: perSec };
 }
 
-// 광맥: 채집 DPS × 효율 = 초당 미네랄. 업그레이드하면 체력(연출용)과 효율이 함께 오른다.
-export const BUILDING_TUNING = { hp: 5, hpGrowth: 2.2, eff: 7, effGrowth: 1.35 };
+// 광맥: 등급마다 단단함(방어력)이 있다. 한 방 피해가 단단함보다 약한 무기는 튕겨 나가 아무것도 못 캔다.
+// 그래서 약한 무기를 아무리 많이 보내도 높은 광맥은 못 캐고, 강한 무기일수록 높은 광맥에서 더 번다.
+export const VEIN_NAMES = ['흙빛 광맥', '구리 광맥', '철 광맥', '은 광맥', '금 광맥', '미스릴 광맥', '아다만 광맥', '용암 수정', '심연 수정', '혼돈의 결정'];
+export const BUILDING_TUNING = { hp: 5, hpGrowth: 2.2, eff: 7, effGrowth: 1.7, armor: 4, armorGrowth: 2.6 };
+
+export function veinName(tier) {
+  return tier < VEIN_NAMES.length ? VEIN_NAMES[tier] : `${VEIN_NAMES.at(-1)} ${tier - VEIN_NAMES.length + 2}층`;
+}
 
 export function buildingStats(tier) {
   const t = BUILDING_TUNING;
   const hp = t.hp * Math.pow(t.hpGrowth, tier);
   const eff = t.eff * Math.pow(t.effGrowth, tier);
-  return { hp, eff, reward: hp * eff };
+  const armor = tier === 0 ? 0 : t.armor * Math.pow(t.armorGrowth, tier - 1);
+  return { hp, eff, armor, reward: hp * eff, name: veinName(tier) };
 }
 
-export function buildingDps(weapons, ctx) {
-  return weapons.reduce((s, w) => s + weaponAttack(w, ctx) * weaponHitsPerSec(w) * critFactor(w) * (w.type === 'axe' ? 2 : 1), 0);
+// 한 번 휘두를 때 광맥에 들어가는 피해. 도끼는 두 배이고 자기 방깎만큼 단단함을 깎는다.
+export function mineHit(weapon, tier, ctx) {
+  const armor = Math.max(0, buildingStats(tier).armor - weaponArmorBreak(weapon));
+  const hit = Math.max(0, weaponAttack(weapon, ctx) * critFactor(weapon) - armor);
+  return hit * (weapon.type === 'axe' ? 2 : 1);
+}
+
+export function buildingDps(weapons, ctx, tier = 0) {
+  return weapons.reduce((s, w) => s + mineHit(w, tier, ctx) * weaponHitsPerSec(w), 0);
 }
 
 export function mineralsPerSec(weapons, tier, ctx) {
-  return buildingDps(weapons, ctx) * buildingStats(tier).eff * (1 + (ctx.perm?.rewardPct ?? 0));
+  return buildingDps(weapons, ctx, tier) * buildingStats(tier).eff * (1 + (ctx.perm?.rewardPct ?? 0));
 }
