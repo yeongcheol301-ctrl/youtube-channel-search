@@ -126,3 +126,24 @@ test('tap bonus grows with mining income but stays below one second of it plus b
   assert.ok(tapGain(s) > 2);
   assert.ok(tapGain(s) <= rate * 0.25 + 2);
 });
+
+test('combineAll merges every eligible pair and stops when none are left', async () => {
+  const { combineAll } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e9;
+  for (let i = 0; i < 5; i++) buy(s, 'sword');
+  s.weapons.forEach((w, i) => { w.level = i < 4 ? 10 + i : 3; });
+  const r = combineAll(s);
+  assert.equal(r.count, 2);
+  assert.equal(s.weapons.filter((w) => w.grade === 1).length, 2);
+  assert.equal(s.weapons.filter((w) => w.grade === 0).length, 1);
+  assert.equal(combineAll(s).count, 0);
+});
+
+test('combineAll pairs the same weapon type first', async () => {
+  const { combineAll } = await import('../src/state.js');
+  const s = newGame(); s.minerals = 1e9; s.meta.unlocked.push('axe');
+  buy(s, 'sword'); buy(s, 'axe'); buy(s, 'sword'); buy(s, 'axe');
+  s.weapons.forEach((w) => { w.level = 10; });
+  combineAll(s);
+  assert.deepEqual(s.weapons.map((w) => w.type).sort(), ['axe', 'sword']);
+});

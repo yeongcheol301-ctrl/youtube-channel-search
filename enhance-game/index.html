@@ -232,13 +232,13 @@ body.crack::after { content: ""; position: fixed; inset: 0; z-index: 23; pointer
 @keyframes crack { from { opacity: 1; } to { opacity: 0; } }
 
 /* ---- AI 그림 ---- */
-img.art { display: block; max-width: 100%; height: auto; mix-blend-mode: screen; border-radius: 50%; }
+img.art { display: block; max-width: 100%; height: auto; border-radius: 50%; }
 .tile img.art, .buy img.art { border-radius: 4px; }
 .aura-violet img.art, .aura-gold img.art { filter: drop-shadow(0 0 10px var(--glow)); }
-img.logo { width: 100%; height: auto; mix-blend-mode: screen; margin-top: 8px; }
+img.logo { width: 100%; height: auto; margin-top: 8px; }
 #splash { position: fixed; inset: 0; z-index: 40; background: radial-gradient(ellipse at 50% 40%, #2a160e 0%, #0b0807 70%); display: grid; place-items: center; padding: 24px max(16px, env(safe-area-inset-right, 0px)) calc(24px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px)); cursor: pointer; }
 .splash-inner { max-width: 440px; width: 100%; display: grid; gap: 18px; text-align: center; }
-.splash-inner img { width: 100%; height: auto; mix-blend-mode: screen; animation: pop 0.8s ease-out; }
+.splash-inner img { width: 100%; height: auto; animation: pop 0.8s ease-out; }
 .splash-inner p { margin: 0; font-family: var(--font-head); font-weight: 800; color: var(--gold); letter-spacing: 0.04em; }
 /* ---- 연계와 손맛 ---- */
 .guide { display: flex; gap: 8px; align-items: center; text-align: left; width: 100%; background: linear-gradient(90deg, #2a1d10, #17120d); border: 1px solid #5a4630; border-radius: var(--r); padding: 7px 10px; font-size: 13px; color: var(--fg); cursor: pointer; }
@@ -260,7 +260,7 @@ img.logo { width: 100%; height: auto; mix-blend-mode: screen; margin-top: 8px; }
 .float.miss { color: var(--muted); font-size: 22px; }
 .float.bad { color: var(--no); font-size: 34px; }
 @keyframes floatUp { 0% { opacity: 0; transform: translate(-50%, 6px) scale(0.8); } 15% { opacity: 1; transform: translate(-50%, -6px) scale(1.08); } 100% { opacity: 0; transform: translate(-50%, -56px) scale(1); } }
-.banner-inner.evolve img { width: 180px; height: auto; mix-blend-mode: screen; filter: drop-shadow(0 0 22px var(--grade)); animation: evolve 0.9s ease-out; }
+.banner-inner.evolve img { width: 180px; height: auto; filter: drop-shadow(0 0 22px var(--grade)); animation: evolve 0.9s ease-out; }
 @keyframes evolve { 0% { transform: scale(0.4) rotate(-20deg); filter: brightness(3) drop-shadow(0 0 40px var(--grade)); opacity: 0; } 60% { transform: scale(1.08) rotate(3deg); opacity: 1; } 100% { transform: none; } }
 .packs { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
 .pack { position: relative; display: grid; justify-items: center; gap: 4px; text-align: center; padding: 14px 8px 10px; cursor: pointer; background: linear-gradient(180deg, #241a10, #120d09); border: 1px solid #6a5220; border-radius: 6px; box-shadow: inset 0 0 0 1px rgba(241, 212, 136, 0.12), 0 6px 16px rgba(0,0,0,0.5); }
@@ -269,7 +269,7 @@ img.logo { width: 100%; height: auto; mix-blend-mode: screen; margin-top: 8px; }
 .pack:first-child strong { grid-area: name; }
 .pack:first-child small { grid-area: line; }
 .pack:first-child .pack-price { grid-area: price; }
-.pack img { width: 72px; height: 72px; mix-blend-mode: screen; }
+.pack img { width: 72px; height: 72px; }
 .pack strong { font-family: var(--font-head); font-weight: 800; font-size: 14px; color: var(--gold-hi); }
 .pack small { font-size: 11.5px; line-height: 1.35; }
 .pack-price { font-family: var(--font-num); font-size: 14px; color: #1a0f05; background: linear-gradient(180deg, var(--gold-hi), var(--gold)); border-radius: 999px; padding: 3px 12px; margin-top: 4px; }
@@ -288,6 +288,23 @@ img.logo { width: 100%; height: auto; mix-blend-mode: screen; margin-top: 8px; }
 .tap-vein.hit img { animation: veinHit 0.14s ease-out; }
 @keyframes veinHit { 40% { transform: scale(0.93) rotate(-2deg); filter: brightness(1.5); } }
 .tap-hint { position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); white-space: nowrap; font-size: 11px; font-weight: 800; color: #062320; background: var(--mineral); border-radius: 999px; padding: 1px 8px; box-shadow: 0 0 10px rgba(111, 214, 196, 0.5); }
+/* ---- 광맥 둘러싸고 때리기 ---- */
+.arena { display: grid; gap: 6px; padding: 8px 0 4px; background: radial-gradient(circle at 50% 50%, #13221f 0%, #0c0a09 62%); border: 1px solid #2c3b37; border-radius: var(--r); position: relative; overflow: hidden; }
+.arena-ring { position: relative; width: min(330px, 100%); aspect-ratio: 1; margin: 0 auto; }
+.arena-ring::before { content: ""; position: absolute; inset: 16%; border-radius: 50%; border: 1px dashed rgba(111, 214, 196, 0.18); }
+.arena .tap-vein { position: absolute; left: 50%; top: 50%; width: 38%; transform: translate(-50%, -50%); background: none; z-index: 2; }
+.arena .tap-vein img { width: 100%; height: auto; border-radius: 0; }
+.arena.busy .tap-vein img { animation: quake 0.32s steps(2) infinite; }
+@keyframes quake { 50% { transform: translate(1px, -1px) rotate(0.6deg); filter: brightness(1.15); } }
+.arena .tap-vein.hit img { animation: veinHit 0.14s ease-out; }
+.striker { position: absolute; left: 50%; top: 50%; width: 0; height: 0; transform: rotate(var(--a)); z-index: 1; }
+.arm { position: absolute; left: -24px; top: -24px; width: 48px; height: 48px; transform: translateY(-128px); animation: lunge var(--dur) ease-in var(--delay) infinite; }
+.arm img.art { width: 48px; height: 48px; border-radius: 0; transform: rotate(calc(-1 * var(--a))); filter: drop-shadow(0 0 6px rgba(0,0,0,0.8)); }
+.arm::after { content: ""; position: absolute; left: 50%; bottom: -6px; width: 14px; height: 14px; margin-left: -7px; border-radius: 50%; background: radial-gradient(circle, #fff 0%, #9ff5e6 35%, transparent 70%); opacity: 0; animation: spark var(--dur) linear var(--delay) infinite; }
+@keyframes lunge { 0%, 100% { transform: translateY(-128px); } 45% { transform: translateY(-136px); } 62% { transform: translateY(-82px); } 72% { transform: translateY(-90px); } }
+@keyframes spark { 0%, 58% { opacity: 0; transform: scale(0.4); } 64% { opacity: 1; transform: scale(1.4); } 80%, 100% { opacity: 0; transform: scale(0.6); } }
+.float.small { font-size: 14px; opacity: 0.85; }
+@media (max-width: 380px) { .arm { transform: translateY(-112px); } @keyframes lunge { 0%, 100% { transform: translateY(-112px); } 45% { transform: translateY(-118px); } 62% { transform: translateY(-72px); } 72% { transform: translateY(-80px); } } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>

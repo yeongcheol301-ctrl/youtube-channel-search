@@ -150,6 +150,28 @@ export function combine(s, idA, idB) {
   return { ok: true, weapon: w };
 }
 
+// 조합할 수 있는 쌍이 없을 때까지 합친다. 같은 종류끼리 먼저, 그다음 등급이 같은 아무 무기끼리.
+export function combineAll(s) {
+  let count = 0;
+  for (;;) {
+    const ready = s.weapons.filter((w) => w.level >= COMBINE_LEVEL && !w.pendingTraits).sort((a, b) => b.level - a.level);
+    let pair = null;
+    for (const a of ready) {
+      const b = ready.find((x) => x !== a && x.type === a.type && canCombine(a, x)) ?? null;
+      if (b) { pair = [a, b]; break; }
+    }
+    if (!pair) {
+      for (const a of ready) {
+        const b = ready.find((x) => canCombine(a, x));
+        if (b) { pair = [a, b]; break; }
+      }
+    }
+    if (!pair) return { ok: true, count };
+    combine(s, pair[0].id, pair[1].id);
+    count += 1;
+  }
+}
+
 export function buildingUpgradeCost(s) {
   return Math.round(buildingStats(s.building.tier + 1).reward * 10);
 }

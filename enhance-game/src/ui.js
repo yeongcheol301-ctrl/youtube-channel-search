@@ -1,12 +1,12 @@
 // 화면: 상태를 읽어 그리고, 버튼은 data-act로 처리한다.
 import {
   WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS,
-  successRate, destroyChance, formatNumber, weaponAttack, partyArmorBreak, bossFight, buildingStats, buildingDps,
+  successRate, destroyChance, formatNumber, weaponAttack, weaponHitsPerSec, partyArmorBreak, bossFight, buildingStats, buildingDps,
 } from './rules.js';
 import {
   load, save, buy, enhance, sell, assign, combine, canCombine, pickTrait, upgradeBuilding,
   buildingUpgradeCost, tick, applyOffline, incomePerSec, ctxOf, fighters, miners, buyPrice,
-  enhancePrice, sellValue, permLevel, tapMine, tapGain,
+  enhancePrice, sellValue, permLevel, tapMine, tapGain, combineAll,
 } from './state.js';
 import {
   challengeBoss, measureDps, rebirthCoins, rebirth, nextBoss, nextUnlock, unlock, buyPerm, PERMS,
@@ -193,7 +193,7 @@ function renderForge() {
   if (w) {
     const rate = w.pity >= 100 ? 1 : successRate(w.level, w.type, bonus);
     const cost = enhancePrice(s, w);
-    const partner = s.weapons.find((x) => canCombine(w, x));
+    const pairs = combineAll(structuredClone(s)).count;
     const breakP = w.level >= 5 ? destroyChance(w.level, w.type) : 0;
     const failText = w.level < 5 ? '실패해도 유지' : breakP > 0 ? `실패 시 ${pct(breakP)} 파괴` : '실패 시 한 단계 하락';
     main = `
@@ -219,7 +219,7 @@ function renderForge() {
     </button>`}
     <div class="row">
       ${btn('toggle-loc', w.loc === 'mine' ? '전투로 보내기' : '채집으로 보내기')}
-      ${btn('combine', partner ? '조합 (+10 두 자루)' : '조합 불가', { disabled: !partner })}
+      ${btn('combine-all', pairs ? `자동 조합 (${pairs}회)` : '조합 불가', { disabled: !pairs })}
       ${btn('sell', `판매 +${fmt(sellValue(w))}`)}
     </div>`;
   }
@@ -244,14 +244,34 @@ function renderForge() {
 }
 
 // ---- 채집장 ----
+// 채집 무기들이 광맥을 빙 둘러싸고 각자 공속대로 내려친다. 많으면 12자루까지만 그린다.
+const ARENA_MAX = 12;
+function renderArena() {
+  const list = miners(s).sort((a, b) => b.level - a.level);
+  const shown = list.slice(0, ARENA_MAX);
+  const n = shown.length;
+  const strikers = shown.map((w, i) => {
+    const dur = Math.min(1.6, Math.max(0.45, 1 / weaponHitsPerSec(w)));
+    return `<span class="striker" style="--a:${Math.round((360 / n) * i)}deg"><span class="arm" style="--dur:${dur.toFixed(2)}s;--delay:${((i * 0.37) % dur).toFixed(2)}s">${art(w.type, w.grade, w.level, 48)}</span></span>`;
+  }).join('');
+  return `<section class="arena ${n ? 'busy' : ''}">
+    <div class="arena-ring">
+      ${strikers}
+      <button type="button" class="tap-vein" data-act="tap" aria-label="광맥 캐기"><img class="art" src="assets/building.webp" width="120" height="120" alt=""><span class="tap-hint">눌러서 캐기 +${fmt(tapGain(s))}</span></button>
+    </div>
+    ${list.length > ARENA_MAX ? `<p class="note">그 밖에 ${list.length - ARENA_MAX}자루가 더 캐고 있습니다</p>` : ''}
+    ${n ? '' : '<p class="note">채집 무기가 없습니다. 강화장에서 무기를 채집으로 보내면 광맥을 둘러싸고 캡니다.</p>'}
+  </section>`;
+}
+
 function renderMine() {
   const b = s.building;
   const st = buildingStats(b.tier);
   const cost = buildingUpgradeCost(s);
   const next = buildingStats(b.tier + 1);
   return `
+    ${renderArena()}
     <section class="mine">
-      <button type="button" class="mine-art tap-vein" data-act="tap" aria-label="광맥 캐기"><img class="art" src="assets/building.webp" width="120" height="120" alt=""><span class="tap-hint">눌러서 캐기 +${fmt(tapGain(s))}</span></button>
       <div>
         <p class="grade-tag">미네랄 광맥 ${b.tier + 1}단계</p>
         <div class="hp"><span id="mine-hp"></span></div>
@@ -577,6 +597,14 @@ const handlers = {
     if (Math.random() < 0.35) sparks('up', '#6fd6c4');
     tapSound(); buzz(8);
   },
+  'combine-all': () => {
+    const r = combineAll(s);
+    if (!r.count) return toast('같은 등급 +10 이상 두 자루가 필요합니다');
+    const best = [...s.weapons].sort((a, b) => b.grade - a.grade)[0];
+    ui.selected = best.id; clang('up'); buzz([30, 30, 60]);
+    toast(`${r.count}번 조합! 최고 ${GRADES[best.grade]} ${WEAPONS[best.type].name}`);
+    setTimeout(() => sparks('big', gradeColor(best.grade)), 50);
+  },
   arrange: () => {
     const r = arrangeBest(s);
     toast(r.battle ? `전투 ${r.battle}자루 · 채집 ${s.weapons.length - r.battle}자루로 배치했습니다` : '무기가 한 자루라 채집에 둡니다. 한 자루 더 사세요');
@@ -655,6 +683,7 @@ setInterval(() => {
   if (ui.auto) for (let i = 0; i < 3 * ui.speed; i++) autoStep(s, { target: ui.autoTarget }, Math.random);
   if (seconds % 60 === 0 && fighters(s).length) measureDps(s, Date.now());
   if (seconds % 10 === 0) persist();
+  if (ui.tab === 'mine' && !ui.modal && incomePerSec(s) > 0) floatText(`+${fmt(incomePerSec(s) * ui.speed)}`, 'gain small', document.querySelector('.tap-vein'));
   const busy = ui.modal || ui.fight || document.activeElement?.tagName === 'SELECT';
   if (busy) renderHeader(); else render();
 }, 1000);
