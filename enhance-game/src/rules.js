@@ -76,7 +76,7 @@ export function rollEnhance(weapon, rng, bonusPct = 0) {
   }
   weapon.pity = Math.min(100, weapon.pity + 10);
   if (grade === 0 && weapon.level < 5) return { result: 'stay', level: weapon.level };
-  if (rng() < destroyChance(weapon.level, weapon.type, grade)) return { result: 'destroy', level: weapon.level };
+  if (!weapon.awakened && rng() < destroyChance(weapon.level, weapon.type, grade)) return { result: 'destroy', level: weapon.level };
   weapon.level = Math.max(0, weapon.level - 1);
   return { result: 'down', level: weapon.level };
 }
@@ -107,15 +107,25 @@ const BASE_SPEED = { sword: 1, axe: 0.8, staff: 0.7, bow: 1.4 };
 const BASE_CRIT = { chance: 0.05, mult: 2 };
 export const GRADES = ['일반', '희귀', '전설', '히어로', '초월'];
 
+// 각성 무기: 히어로 이상에서 각성하면 공격력 ×2에 무기마다 전용 능력이 붙고, 다시는 깨지지 않는다.
+export const AWAKEN_MULT = 2;
+export const AWAKEN_SKILLS = {
+  sword: { name: '심연 베기', text: '치명타 확률 +25%, 치명타 피해 +100%', bonus: { critChance: 0.25, critMult: 1 } },
+  axe: { name: '대지 분쇄', text: '방깎 +40, 단단한 광맥도 쪼갬', bonus: { armorBreak: 40 } },
+  staff: { name: '차원 붕괴', text: '공격력 +100%', bonus: { atkPct: 1 } },
+  bow: { name: '천공 연사', text: '공속 +100%', bonus: { speedPct: 1 } },
+};
+
 function traitSum(weapon, key) {
-  return weapon.traits.filter((t) => t === key).length * TRAITS[key].value;
+  const awake = weapon.awakened ? AWAKEN_SKILLS[weapon.type].bonus[key] ?? 0 : 0;
+  return weapon.traits.filter((t) => t === key).length * TRAITS[key].value + awake;
 }
 
 export function weaponAttack(weapon, ctx) {
   const def = WEAPONS[weapon.type];
   const bow = weapon.type === 'bow' ? 1 + 0.1 * (ctx.bowCount ?? 0) : 1;
   const pct = (1 + traitSum(weapon, 'atkPct')) * (1 + (ctx.perm?.atkPct ?? 0));
-  return def.atk * Math.pow(GRADE_MULT, weapon.grade) * Math.pow(ATK_GROWTH, weapon.level) * pct * bow;
+  return def.atk * Math.pow(GRADE_MULT, weapon.grade) * Math.pow(ATK_GROWTH, weapon.level) * pct * bow * (weapon.awakened ? AWAKEN_MULT : 1);
 }
 
 export function weaponHitsPerSec(weapon) {

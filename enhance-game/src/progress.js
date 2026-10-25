@@ -1,6 +1,6 @@
 // 보스 도전, DPS 측정, 환생·해금·영구 능력, 자동화.
 import { WEAPONS, WEAPON_ORDER, makeBoss, bossFight, FIGHT_SECONDS, weaponAttack } from './rules.js';
-import { bestVein, canPromote, promote, atCap, newGame, ctxOf, fighters, miners, assign, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
+import { canAwaken, awaken, bestVein, canPromote, promote, atCap, newGame, ctxOf, fighters, miners, assign, buy, enhance, pickTrait, sell, buyPrice, enhancePrice, permLevel } from './state.js';
 
 const fail = (reason) => ({ ok: false, reason });
 
@@ -108,6 +108,11 @@ export function autoStep(s, cfg, rng) {
     promote(s, ready.id);
     return { ok: true, action: 'promote' };
   }
+  const aw = s.weapons.find((w) => canAwaken(s, w));
+  if (aw) {
+    awaken(s, aw.id);
+    return { ok: true, action: 'awaken' };
+  }
   const low = s.weapons.filter((w) => w.level < cfg.target && !atCap(w)).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
   if (low) {
     if (s.minerals < enhancePrice(s, low)) return { ok: true, action: 'wait' };
@@ -122,7 +127,7 @@ export function autoStep(s, cfg, rng) {
 
 export function bulkSell(s, maxLevel) {
   if (s.meta.rebirths < BULK_SELL_REBIRTHS) return fail('환생 5회차부터');
-  const targets = s.weapons.filter((w) => w.grade === 0 && w.level <= maxLevel && !w.pendingTraits);
+  const targets = s.weapons.filter((w) => w.grade === 0 && w.level <= maxLevel && !w.pendingTraits && !w.awakened);
   for (const w of targets) sell(s, w.id);
   return { ok: true, count: targets.length };
 }

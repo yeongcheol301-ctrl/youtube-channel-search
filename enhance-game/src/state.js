@@ -1,6 +1,6 @@
 // 게임 상태와 행동. 행동은 모두 {ok, reason?, ...}를 돌려주고, 실패하면 상태를 바꾸지 않는다.
 import {
-  WEAPONS, TRAIT_LEVELS, MAX_LEVEL, GRADES, GRADE_MULT, GRADE_CAPS, rollEnhance, enhanceCost,
+  WEAPON_ORDER, WEAPONS, TRAIT_LEVELS, MAX_LEVEL, GRADES, GRADE_MULT, GRADE_CAPS, rollEnhance, enhanceCost,
   buildingStats, mineralsPerSec, buildingDps,
 } from './rules.js';
 
@@ -17,16 +17,26 @@ export function permLevel(s, key) {
   return s.meta.perm[key] ?? 0;
 }
 
+// 도감 수집: 처음 띄운 (무기, 등급)마다 공격력 +2%, 한 무기의 5등급을 다 모으면 +10% 더. 환생해도 남는다.
+export const COLLECT_PCT = 0.02;
+export const SET_PCT = 0.1;
+
+export function collection(meta) {
+  const pairs = new Set(meta.discovered.map((k) => k.split(':').slice(0, 2).join(':')));
+  const sets = WEAPON_ORDER.filter((t) => GRADES.every((_, g) => pairs.has(`${t}:${g}`)));
+  return { count: pairs.size, total: WEAPON_ORDER.length * GRADES.length, sets, bonus: pairs.size * COLLECT_PCT + sets.length * SET_PCT };
+}
+
 export function ctxOf(s) {
   return {
     bowCount: s.weapons.filter((w) => w.type === 'bow').length,
-    perm: { atkPct: 1.25 ** permLevel(s, 'atk') - 1, rewardPct: 1.25 ** permLevel(s, 'reward') - 1 },
+    perm: { atkPct: 1.25 ** permLevel(s, 'atk') * (1 + collection(s.meta).bonus) - 1, rewardPct: 1.25 ** permLevel(s, 'reward') - 1 },
   };
 }
 
 export function newGame(meta = newMeta()) {
   const hp = buildingStats(0).hp;
-  return {
+  const s = {
     minerals: 150 + 300 * (meta.perm.start ?? 0),
     weapons: [],
     nextId: 1,
@@ -39,6 +49,9 @@ export function newGame(meta = newMeta()) {
     lastSeen: 0,
     meta,
   };
+  // 한 번 각성한 무기는 환생해도 일반 +0 각성 무기로 돌아온다.
+  if (meta.relic) s.weapons.push({ id: s.nextId++, type: meta.relic.type, grade: 0, level: 0, pity: 0, traits: [], pendingTraits: null, loc: 'mine', awakened: true });
+  return s;
 }
 
 const find = (s, id) => s.weapons.find((w) => w.id === id);
@@ -188,7 +201,7 @@ export function atCap(w) {
 // 재료: 같은 종류·같은 등급 중 가장 낮은 단계 무기 한 자루.
 export function promoteMaterial(s, w) {
   return s.weapons
-    .filter((x) => x !== w && x.type === w.type && x.grade === w.grade && !x.pendingTraits)
+    .filter((x) => x !== w && x.type === w.type && x.grade === w.grade && !x.pendingTraits && !x.awakened)
     .sort((a, b) => a.level - b.level)[0] ?? null;
 }
 
@@ -226,6 +239,28 @@ export function promoteAll(s) {
 
 // ---- 광맥 ----
 const unlockedVein = (s) => s.building.unlocked ?? s.building.tier;
+
+// ---- 각성 ----
+export const AWAKEN_GRADE = 3;
+export const awakenCost = () => promoteCost(2) * 2;
+
+export function canAwaken(s, w) {
+  return !!w && !w.awakened && w.grade >= AWAKEN_GRADE && !w.pendingTraits && s.minerals >= awakenCost() && !s.weapons.some((x) => x.awakened);
+}
+
+export function awaken(s, id) {
+  const w = find(s, id);
+  if (!w) return fail('없는 무기');
+  if (w.awakened) return fail('이미 각성한 무기');
+  if (w.grade < AWAKEN_GRADE) return fail(`${GRADES[AWAKEN_GRADE]} 등급부터 각성할 수 있습니다`);
+  if (w.pendingTraits) return fail('특성을 먼저 고르세요');
+  if (s.weapons.some((x) => x.awakened)) return fail('각성 무기는 한 자루만 가질 수 있습니다');
+  if (s.minerals < awakenCost()) return fail('미네랄 부족');
+  s.minerals -= awakenCost();
+  w.awakened = true;
+  s.meta.relic = { type: w.type };
+  return { ok: true, weapon: w };
+}
 
 export function buildingUpgradeCost(s) {
   return Math.round(buildingStats(unlockedVein(s) + 1).reward * 10);

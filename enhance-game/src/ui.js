@@ -1,12 +1,12 @@
 // 화면: 상태를 읽어 그리고, 버튼은 data-act로 처리한다.
 import {
-  WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS, GRADE_CAPS, TRAIT_LEVELS, GRADE_MULT,
+  AWAKEN_SKILLS, AWAKEN_MULT, WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS, GRADE_CAPS, TRAIT_LEVELS, GRADE_MULT,
   mineHit, successRate, destroyChance, formatNumber, weaponAttack, weaponHitsPerSec, partyArmorBreak, bossFight, buildingStats, buildingDps,
 } from './rules.js';
 import {
   load, save, buy, enhance, sell, assign, pickTrait, upgradeBuilding, promote, promoteAll, canPromote, promoteCost, promoteMaterial, atCap,
   buildingUpgradeCost, tick, applyOffline, incomePerSec, ctxOf, fighters, miners, buyPrice,
-  enhancePrice, sellValue, permLevel, tapMine, tapGain, craftProtect, fillPity, SHARD_COST, PITY_FILL, selectVein, bestVein, veinIncome,
+  enhancePrice, sellValue, permLevel, tapMine, tapGain, craftProtect, fillPity, SHARD_COST, PITY_FILL, selectVein, bestVein, veinIncome, canAwaken, awaken, awakenCost, AWAKEN_GRADE, collection, COLLECT_PCT, SET_PCT,
 } from './state.js';
 import { dayKey, canAttend, attend, attendSlot, track, missionRows, claimMission, dailyAlert, ATTEND_REWARDS } from './daily.js';
 import {
@@ -35,10 +35,10 @@ const LEVEL_NAMES = {
 };
 // 그림·이름 7단계: 일반 +0, 일반 +5, 희귀, 전설, 히어로, 초월, 초월 +10.
 const BAND_LABELS = ['일반 +0', '일반 +5', '희귀', '전설', '히어로', '초월', '초월 +10'];
-const bandOf = (w) => (w.grade === 0 ? (w.level >= 5 ? 1 : 0) : w.grade >= 4 ? (w.level >= 10 ? 6 : 5) : w.grade + 1);
+const bandOf = (w) => (w.awakened ? 6 : w.grade === 0 ? (w.level >= 5 ? 1 : 0) : w.grade >= 4 ? (w.level >= 10 ? 6 : 5) : w.grade + 1);
 const levelName = (w) => LEVEL_NAMES[w.type][bandOf(w)];
 const auraOf = (w) => (w.grade >= 3 ? 'gold' : w.grade === 2 ? 'violet' : w.grade === 1 || w.level >= 5 ? 'blue' : 'none');
-const gradeLv = (w) => `${GRADES[w.grade]} +${w.level}`;
+const gradeLv = (w) => `${w.awakened ? '각성 ' : ''}${GRADES[w.grade]} +${w.level}`;
 const gradeColor = (g) => GRADE_COLORS[g][1];
 
 // ---- 소리 ----
@@ -167,21 +167,75 @@ function renderHeader() {
       <span class="mineral" id="min-num"></span><span class="unit">미네랄</span>
       <button type="button" class="speed s${ui.speed}" data-act="speed" aria-label="게임 속도 ${ui.speed}배, 눌러서 바꾸기">▶ ${ui.speed}배속</button>
     </div>
+    ${powerRow()}
     <div class="hud-sub">
       <span>초당 <b>+${fmt(incomePerSec(s))}</b></span>
-      <span>총 DPS <b>${fmt(battleDps(s))}</b></span>
       <span>보스 <b>${s.maxStage}</b>단계</span>
       <span>코인 <b>${fmt(s.meta.coins)}</b></span>
+      <span>수집 <b>+${Math.round(collection(s.meta).bonus * 100)}%</b></span>
     </div>
     ${hint ? `<button type="button" class="hint" data-act="tab" data-tab="boss">10분째 DPS가 그대로예요. 환생하면 코인 ${fmt(rebirthCoins(s))}개 →</button>`
       : `<button type="button" class="guide g-${step.key}" data-act="${step.act ?? 'tab'}" data-tab="${step.tab}"><span>다음</span>${step.text}</button>`}`;
-  if (html !== lastHud) { lastHud = html; $('#hud').innerHTML = html; }
+  if (html !== lastHud) { lastHud = html; $('#hud').innerHTML = html; afterPower(); }
+}
+
+// ---- 성장 체감: 전투력 숫자, 다음 보스까지 진행 막대, 전투력 돌파 축하 ----
+function powerRow() {
+  const power = battleDps(s);
+  const boss = nextBoss(s);
+  const party = fighters(s);
+  const r = party.length ? bossFight(party, boss, ctxOf(s)) : { damage: 0, killed: false };
+  const p = r.killed ? 100 : Math.min(99, Math.floor((r.damage / boss.hp) * 100));
+  return `<div class="power-row">
+      <span class="pw-label">전투력</span><b id="power">${fmt(power)}</b>
+      <button type="button" class="goal ${r.killed ? 'ready' : ''}" data-act="tab" data-tab="boss" aria-label="${boss.stage}단계 보스까지 ${p}%">
+        <i style="width:${p}%"></i><em>${r.killed ? `${boss.stage}단계 보스 잡을 수 있음!` : `${boss.stage}단계 보스까지 ${p}%`}</em>
+      </button>
+    </div>`;
+}
+
+const MILESTONES = [1, 2, 5];
+function milestoneOf(x) {
+  if (x < 10) return 0;
+  const k = Math.pow(10, Math.floor(Math.log10(x)));
+  return k * [...MILESTONES].reverse().find((m) => m * k <= x);
+}
+function afterPower() {
+  const power = battleDps(s);
+  const el = document.getElementById('power');
+  const last = afterPower.last ?? power;
+  afterPower.last = power;
+  if (power > last * 1.001 && el) {
+    el.classList.remove('bump'); void el.offsetWidth; el.classList.add('bump');
+    if (power > last * 1.01) floatText(`▲ +${fmt(power - last)}`, 'up-power', el);
+  }
+  const ms = milestoneOf(power);
+  if (ms > (s.powerMilestone ?? 0)) {
+    const first = s.powerMilestone === undefined;
+    s.powerMilestone = ms;
+    if (!first && !ui.banner) showMilestone(`전투력 ${fmt(ms)} 돌파!`);
+  }
+}
+
+function showMilestone(text) {
+  ui.banner = `<div class="banner-inner milestone" style="--grade:#f1d488"><small>성장</small><strong class="ms">${text}</strong></div>`;
+  renderBanner(); clang('up'); buzz([20, 20, 40]);
+  setTimeout(() => sparks('big', '#f1d488'), 30);
+  clearTimeout(showMilestone.t);
+  showMilestone.t = setTimeout(() => { ui.banner = null; renderBanner(); }, 1800);
+}
+
+// 새 (무기, 등급)을 도감에 올리면 축하한다.
+function checkCollection() {
+  const c = collection(s.meta).count;
+  if (checkCollection.last !== undefined && c > checkCollection.last) toast(`도감 등록! 공격력 +${Math.round(COLLECT_PCT * 100)}% (수집 보너스 +${Math.round(collection(s.meta).bonus * 100)}%)`);
+  checkCollection.last = c;
 }
 
 // ---- 강화장 ----
 function weaponTile(w) {
   const on = w.id === ui.selected;
-  return `<button type="button" class="tile aura-${auraOf(w)} ${on ? 'on' : ''}" data-act="select" data-id="${w.id}" style="--grade:${gradeColor(w.grade)}" aria-label="${GRADES[w.grade]} ${WEAPONS[w.type].name} +${w.level}">
+  return `<button type="button" class="tile aura-${auraOf(w)} ${on ? 'on' : ''} ${w.awakened ? 'awakened' : ''}" data-act="select" data-id="${w.id}" style="--grade:${gradeColor(w.grade)}" aria-label="${GRADES[w.grade]} ${WEAPONS[w.type].name} +${w.level}">
     ${art(w.type, w.grade, w.level, 40)}
     <span class="tile-g">${GRADES[w.grade]}</span><span class="tile-lv">+${w.level}</span>
     ${w.pendingTraits ? '<span class="tile-dot" title="특성 선택 대기"></span>' : ''}
@@ -196,6 +250,20 @@ function promoteButton(w) {
       <span class="eb-title">승급 → ${GRADES[w.grade + 1]} +0</span>
       <span class="eb-meta">${fmt(cost)} 미네랄 · ${why}</span>
     </button>`;
+}
+
+function awakenBox(w) {
+  if (w.awakened) return '';
+  const other = s.weapons.find((x) => x.awakened);
+  const sk = AWAKEN_SKILLS[w.type];
+  if (w.grade < AWAKEN_GRADE) return w.grade === AWAKEN_GRADE - 1 && !other ? `<p class="note aw-hint">${GRADES[AWAKEN_GRADE]}까지 올리면 이 무기를 <b>각성</b>시켜 「${sk.name}」을 얻고 환생해도 남길 수 있습니다.</p>` : '';
+  return `<div class="awaken-box">
+    <p><b>각성 「${LEVEL_NAMES[w.type][6]}」</b><small>공격력 ×${AWAKEN_MULT} · ${sk.text} · 다시는 깨지지 않음 · 환생해도 일반 +0으로 남음</small></p>
+    <button type="button" class="enhance-btn awaken" data-act="awaken" ${canAwaken(s, w) ? '' : 'disabled'}>
+      <span class="eb-title">각성</span>
+      <span class="eb-meta">${other ? '각성 무기는 한 자루만 (지금 각성 무기를 팔면 가능)' : `${fmt(awakenCost())} 미네랄`}</span>
+    </button>
+  </div>`;
 }
 
 // 심연 조각: 깨진 무기에서 남는 재료. 천장 채우기와 파괴 방지권으로 쓴다.
@@ -231,7 +299,7 @@ function renderForge() {
     <section class="anvil aura-${auraOf(w)} ${ui.flash ?? ''}" style="--grade:${gradeColor(w.grade)}">
       <div class="anvil-art">${art(w.type, w.grade, w.level, 132)}</div>
       <div class="anvil-info">
-        <p class="grade-tag">${GRADES[w.grade]} · ${WEAPONS[w.type].name}</p>
+        <p class="grade-tag">${w.awakened ? '<span class="aw-tag">각성</span> ' : ''}${GRADES[w.grade]} · ${WEAPONS[w.type].name}</p>
         <h2><span class="lv">+${w.level}</span> ${levelName(w)}</h2>
         <div class="track" style="--cap:${cap}" aria-label="${GRADES[w.grade]} +${w.level} / +${cap}">${Array.from({ length: cap }, (_, i) => `<i class="${i < w.level ? 'f' : ''} ${TRAIT_LEVELS.includes(i + 1) ? 't' : ''} ${i === w.level - 1 ? 'n' : ''}"></i>`).join('')}</div>
         <p class="cap-line">${top ? `최종 등급 · +${cap}까지` : `+${cap} 달성 → ${GRADES[w.grade + 1]} +0으로 승급`}${nextTrait ? ` · +${nextTrait}에서 특성` : ''}</p>
@@ -242,6 +310,7 @@ function renderForge() {
         </dl>
         <p class="fail-note">${atCap(w) ? (top ? '최고 단계에 도달했습니다' : '한계 도달 · 아래 버튼으로 승급') : failText}${w.type === 'axe' ? ' · 도끼는 깨지지 않음' : ''}${w.type === 'staff' ? ' · 성공 시 15%로 2단계' : ''}</p>
         <div class="pity" aria-label="천장 ${w.pity}%"><span style="width:${w.pity}%"></span><em>천장 ${w.pity}%</em></div>
+        ${w.awakened ? `<p class="aw-skill">「${AWAKEN_SKILLS[w.type].name}」 공격력 ×${AWAKEN_MULT} · ${AWAKEN_SKILLS[w.type].text} · 깨지지 않음</p>` : ''}
         ${w.traits.length ? `<p class="traits">${w.traits.map((t) => `<span>${TRAITS[t].label}</span>`).join('')}</p>` : ''}
       </div>
     </section>
@@ -255,6 +324,7 @@ function renderForge() {
       ${btn('sell', `판매 +${fmt(sellValue(w))}`)}
       ${btn('brag', '자랑하기')}
     </div>
+    ${awakenBox(w)}
     ${shardBar(w, breakP)}`;
   }
   const shop = WEAPON_ORDER.map((t) => {
@@ -422,11 +492,17 @@ function renderBook() {
     const grades = GRADES.map((g, i) => `<span class="gchip ${[...found].some((k) => k.startsWith(`${t}:${i}:`)) ? 'seen' : ''}" style="--grade:${gradeColor(i)}">${g}</span>`).join('');
     return `<article class="book-card ${open ? '' : 'locked'}">
       <header>${art(t, 0, 0, 40)}<div><h4>${WEAPONS[t].name}</h4><small>${open ? '해금됨' : `잠김 · 환생 코인 ${WEAPONS[t].unlockCost}`}</small></div>${btn('info', '설명', { data: { type: t } })}</header>
-      <div class="gchips">${grades}</div>
+      <div class="gchips">${grades}${collection(s.meta).sets.includes(t) ? `<span class="gchip set">세트 완성 +${Math.round(SET_PCT * 100)}%</span>` : ''}</div>
       <ol class="names">${names}</ol>
     </article>`;
   }).join('');
-  return `${logo}<h3 class="sec">무기 도감 <small>처음 띄운 단계 이름이 기록됩니다</small></h3>
+  const col = collection(s.meta);
+  return `${logo}<section class="collect">
+      <p><b>수집 보너스 공격력 +${Math.round(col.bonus * 100)}%</b><small>${col.count}/${col.total} 등록</small></p>
+      <i class="bar"><em style="width:${(col.count / col.total) * 100}%"></em></i>
+      <small>처음 띄운 무기·등급마다 +${Math.round(COLLECT_PCT * 100)}%, 한 무기의 다섯 등급을 모두 모으면 +${Math.round(SET_PCT * 100)}% 더. 환생해도 남습니다.</small>
+    </section>
+    <h3 class="sec">무기 도감 <small>처음 띄운 단계 이름이 기록됩니다</small></h3>
     <div class="book">${cards}</div>
     <h3 class="sec">승급표</h3>
     <table class="ready"><tbody>
@@ -510,6 +586,7 @@ function weaponInfo(t, fresh) {
       <div><dt>강화 비용</dt><dd>${t === 'staff' ? '×2' : '보통'}</dd></div>
     </dl>
     <ul class="pc">${d.pros.map((x) => `<li class="pro">${x}</li>`).join('')}${d.cons.map((x) => `<li class="con">${x}</li>`).join('')}</ul>
+    <p class="aw-skill">각성하면 「${AWAKEN_SKILLS[t].name}」 · ${AWAKEN_SKILLS[t].text}</p>
     <p class="counters">강한 보스 ${d.counters.map((c) => `<span class="pill ok">${BOSS_TYPES[c].name}</span>`).join(' ')}</p>
     <div class="evo">${evo}</div>
     <p class="note">잘 뜨는 특성: ${[...new Set(d.traitPool)].sort((a, b) => d.traitPool.filter((x) => x === b).length - d.traitPool.filter((x) => x === a).length).slice(0, 2).map((k) => TRAITS[k].label).join(', ')}</p>
@@ -599,6 +676,7 @@ function updateLive() {
 // 같은 화면이면 DOM을 바꾸지 않는다(누르는 중인 버튼이 사라지지 않게).
 function render() {
   renderHeader();
+  checkCollection();
   const html = VIEWS[ui.tab]();
   if (html === lastView) {
     updateLive(); renderModal(); renderBanner();
@@ -650,7 +728,7 @@ function showEvolution(w, label = '진화') {
   ui.banner = `<div class="banner-inner evolve" style="--grade:${gradeColor(w.grade)}">
     <small>${label} · ${GRADES[w.grade]} ${WEAPONS[w.type].name}</small>
     ${url ? `<img src="${url}" alt="" width="180" height="180">` : ''}
-    <strong>+${w.level}</strong><span>「${levelName(w)}」</span>${label === '승급' ? '<em>+0부터 다시 · 공격력 대폭 상승</em>' : ''}</div>`;
+    <strong>+${w.level}</strong><span>「${levelName(w)}」</span>${label === '승급' ? '<em>+0부터 다시 · 공격력 대폭 상승</em>' : label === '각성' ? `<em>「${AWAKEN_SKILLS[w.type].name}」 · 공격력 ×${AWAKEN_MULT} · 다시는 깨지지 않음</em>` : ''}</div>`;
   clearTimeout(showEvolution.t);
   showEvolution.t = setTimeout(() => { ui.banner = null; renderBanner(); }, 2400);
 }
@@ -875,6 +953,16 @@ const handlers = {
   perm: (d) => { const r = buyPerm(s, d.key); toast(r.ok ? `${PERMS[d.key].name} 강화` : r.reason); },
   'ad-minerals': () => { const g = Math.max(200, incomePerSec(s) * 300); s.minerals += g; gainText(g); track(s.meta, 'ad', today()); toast(`(광고 시청 완료) +${fmt(g)} 미네랄`); },
   cash: (d) => toast(`「${d.name}」은 출시 후 판매합니다`),
+  awaken: () => {
+    const w = selectedWeapon();
+    const r = w && awaken(s, w.id);
+    if (!r?.ok) return toast(r?.reason ?? '각성할 수 없습니다');
+    clang('up'); buzz([40, 30, 40, 30, 80]); showEvolution(w, '각성');
+    setTimeout(() => sparks('big', '#b68cff'), 50);
+    setTimeout(() => sparks('big', '#f1d488'), 400);
+    setTimeout(() => offerBrag(w, '각성!'), 2600);
+    persist();
+  },
   attend: () => {
     const r = attend(s.meta, today());
     if (!r.ok) return toast(r.reason);

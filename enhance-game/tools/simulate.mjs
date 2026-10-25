@@ -1,6 +1,6 @@
 // 단순 봇으로 플레이해 회차별 진행 속도를 출력한다. 사용: node tools/simulate.mjs [seed]
 import { weaponAttack, bossFight, mineralsPerSec, buildingDps } from '../src/rules.js';
-import { selectVein, bestVein, veinIncome, incomePerSec, promoteAll, atCap, newGame, buy, enhance, pickTrait, assign, upgradeBuilding, buildingUpgradeCost, tick, ctxOf, fighters, buyPrice, enhancePrice } from '../src/state.js';
+import { collection, canAwaken, awaken, selectVein, bestVein, veinIncome, incomePerSec, promoteAll, atCap, newGame, buy, enhance, pickTrait, assign, upgradeBuilding, buildingUpgradeCost, tick, ctxOf, fighters, buyPrice, enhancePrice } from '../src/state.js';
 import { challengeBoss, measureDps, rebirth, rebirthCoins, nextBoss, nextUnlock, unlock, buyPerm, PERMS, permCost, shouldHintRebirth } from '../src/progress.js';
 
 let seed = Number(process.argv[2] ?? 1);
@@ -32,6 +32,8 @@ function act() {
   const p = s.weapons.find((w) => w.pendingTraits);
   if (p) return pickTrait(s, p.id, p.pendingTraits[0]);
   if (promoteAll(s).count) return true;
+  const aw = s.weapons.find((w) => canAwaken(s, w));
+  if (aw) return awaken(s, aw.id);
   const best = bestVein(s);
   if (best !== s.building.tier) selectVein(s, best);
   const cost = buildingUpgradeCost(s);
@@ -59,7 +61,7 @@ while (now < MAX_HOURS * 3600) {
   }
   if (now % 60 === 0 && shouldHintRebirth(s, now * 1000)) {
     const coins = rebirthCoins(s);
-    log.push({ run: s.meta.rebirths + 1, minutes: Math.round((now - runStart) / 60), stage: s.maxStage, bestLevel: s.bestLevel, coins, totalHours: +(now / 3600).toFixed(1) });
+    log.push({ relic: s.meta.relic?.type ?? '-', coll: Math.round(collection(s.meta).bonus * 100), run: s.meta.rebirths + 1, minutes: Math.round((now - runStart) / 60), stage: s.maxStage, bestLevel: s.bestLevel, coins, totalHours: +(now / 3600).toFixed(1) });
     if (s.maxStage >= 10) break;
     s = rebirth(s, { adDouble: true });
     runStart = now;

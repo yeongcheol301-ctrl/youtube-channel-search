@@ -29,6 +29,26 @@ await page.click('.tabs [data-tab="forge"]');
 await page.click('[data-act="brag"]');
 await page.waitForTimeout(1500);
 await page.screenshot({ path: out + 'f-brag.png' });
+// 각성: 히어로 검 한 자루와 넉넉한 미네랄
+const hero = { ...save, minerals: 5e8, weapons: [{ id: 1, type: 'sword', grade: 3, level: 4, pity: 0, traits: Array(6).fill('critMult'), pendingTraits: null, loc: 'mine' }], nextId: 2, meta: { ...save.meta, daily: { day: '2099-01-01', streak: 1, lastAttend: '2099-01-01', counts: {}, claimed: [] }, discovered: ['sword:0:0', 'sword:1:0', 'sword:2:0', 'sword:3:4'] } };
+const p2 = await browser.newPage({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 });
+p2.on('pageerror', (e) => errors.push(e.message));
+await p2.addInitScript((data) => { if (!sessionStorage.getItem('seeded')) { localStorage.setItem('enhance-save-v2', data); sessionStorage.setItem('seeded', '1'); } }, JSON.stringify(hero));
+await p2.goto(process.argv[2]);
+await p2.click('#splash');
+await p2.waitForTimeout(1500);
+{ const c = await p2.$('#modal [data-act="close"]'); if (c) await c.click(); }
+await p2.screenshot({ path: out + 'f-awaken-before.png', fullPage: true });
+await p2.click('[data-act="awaken"]');
+await p2.waitForTimeout(700);
+await p2.screenshot({ path: out + 'f-awaken.png' });
+await p2.waitForTimeout(2600);
+{ const c = await p2.$('#modal [data-act="close"]'); if (c) await c.click(); }
+await p2.waitForTimeout(300);
+await p2.screenshot({ path: out + 'f-awakened.png' });
+await p2.click('.tabs [data-tab="book"]');
+await p2.waitForTimeout(300);
+await p2.screenshot({ path: out + 'f-book.png' });
 const card = await page.$eval('.brag img', (i) => i.src.length).catch(() => 0);
 console.log(JSON.stringify({ errors, card }));
 await browser.close();
