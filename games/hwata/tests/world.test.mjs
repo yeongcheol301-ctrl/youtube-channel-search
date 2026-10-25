@@ -76,3 +76,41 @@ test('pearl clams are buried in deep sand and replaced each day', () => {
   for (let i = 0; i < w.tiles.length; i++) if (w.tiles[i] === T.CLAM) clams++;
   assert.equal(clams, 3);
 });
+
+import { WRECK, openWreck } from '../src/world.js';
+
+const reach = (w, from, to) => {
+  // 물로 이어진 길이 있는지(4방향)
+  const seen = new Set([`${from.x},${from.y}`]);
+  const q = [from];
+  while (q.length) {
+    const c = q.shift();
+    if (c.x === to.x && c.y === to.y) return true;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const n = { x: c.x + dx, y: c.y + dy };
+      const k = `${n.x},${n.y}`;
+      if (seen.has(k) || isSolid(w, n.x, n.y) || n.x < 0 || n.y < 0 || n.x >= W || n.y >= H) continue;
+      seen.add(k);
+      q.push(n);
+    }
+  }
+  return false;
+};
+
+test('a sunken ship rests in the trench with a chest inside', () => {
+  const w = makeWorld();
+  assert.equal(tile(w, WRECK.x0, WRECK.y1), T.HULL);
+  assert.equal(canDig(w, WRECK.x0, WRECK.y1), false);
+  const inner = chestSpots(w).find((c) => c.loot.page === 3);
+  assert.ok(inner.x > WRECK.x0 && inner.x < WRECK.x1 && inner.y < WRECK.y1);
+  assert.equal(tile(w, inner.x, inner.y), T.CHEST);
+});
+
+test('rubble blocks the wreck until the boss is calmed', () => {
+  const w = makeWorld();
+  const inner = chestSpots(w).find((c) => c.loot.page === 3);
+  const above = { x: 128, y: 90 };
+  assert.equal(reach(w, above, { x: inner.x, y: inner.y - 1 }), false);
+  openWreck(w);
+  assert.equal(reach(w, above, { x: inner.x, y: inner.y - 1 }), true);
+});

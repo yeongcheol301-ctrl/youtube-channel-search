@@ -87,7 +87,7 @@ export const PAGES = {
   3: { name: '청낭서 3장 · 양생편', perk: '숨이 30 늘어납니다' },
 };
 
-// 바닷속 상자(난파선 짐). x 자리 바닥에 반쯤 묻혀 있다. 지도에 한 번만 있다.
+// 바닷속 상자(난파선 짐). y 가 없으면 x 자리 바닥에 반쯤 묻혀 있다. y 가 있는 것은 난파선 안. 지도에 한 번만 있다.
 export const POTS = [
   { x: 30, loot: { money: 15 } },
   { x: 56, loot: { arrows: 3 } },
@@ -95,6 +95,7 @@ export const POTS = [
   { x: 80, loot: { item: 'pearl', n: 1 } },
   { x: 101, loot: { money: 30 } },
   { x: 114, loot: { page: 2 } },
-  { x: 128, loot: { item: 'seahorse', n: 1 } },
-  { x: 134, loot: { page: 3 } },
+  { x: 120, loot: { item: 'seahorse', n: 1 } },
+  { x: 125, y: 106, loot: { item: 'pearl', n: 2 } },
+  { x: 134, y: 106, loot: { page: 3 } },
 ];

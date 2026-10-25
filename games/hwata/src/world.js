@@ -4,7 +4,11 @@ import { DAILY_SPAWNS, CLOVER_CHANCE, POTS } from './data.js';
 export const W = 160;
 export const H = 120;
 export const SEA = 10;
-export const T = { AIR: 0, WATER: 1, SAND: 2, ROCK: 3, CHEST: 4, CLAM: 5 };
+export const T = { AIR: 0, WATER: 1, SAND: 2, ROCK: 3, CHEST: 4, CLAM: 5, HULL: 6, RUBBLE: 7 };
+
+// 해구 바닥의 난파선(청낭서를 싣고 가던 배). 바깥 테두리가 선체, 안은 물.
+export const WRECK = { x0: 122, x1: 136, y0: 101, y1: 107 };
+const WRECK_DOORS = [[122, 105], [122, 106], [128, 101], [129, 101]];
 
 export const ZONES = {
   shore: [0, 7],
@@ -56,13 +60,33 @@ export function makeWorld() {
       for (let y = f - hgt; y < f; y++) setTile(w, x, y, T.ROCK);
     }
   }
+  buildWreck(w);
   for (const c of chestSpots(w)) setTile(w, c.x, c.y, T.CHEST);
   return w;
 }
 
+function buildWreck(w) {
+  const { x0, x1, y0, y1 } = WRECK;
+  for (let x = x0; x <= x1; x++) {
+    for (let y = y0; y <= y1; y++) {
+      const edge = x === x0 || x === x1 || y === y0 || y === y1;
+      const corner = (x === x0 || x === x1) && y === y0;
+      setTile(w, x, y, edge && !corner ? T.HULL : T.WATER);
+    }
+  }
+  for (const [x, y] of WRECK_DOORS) setTile(w, x, y, T.RUBBLE);
+  // 배 밑의 빈틈은 모래로 메운다
+  for (let x = x0; x <= x1; x++) for (let y = y1 + 1; tile(w, x, y) === T.WATER; y++) setTile(w, x, y, T.SAND);
+}
+
+// 검은지느러미가 꼬리로 돌무더기를 치워 난파선 입구가 열린다
+export function openWreck(w) {
+  for (const [x, y] of WRECK_DOORS) if (tile(w, x, y) === T.RUBBLE) setTile(w, x, y, T.WATER);
+}
+
 // 상자는 x 자리 바닥 맨 윗칸에 반쯤 묻혀 있다
 export function chestSpots(w) {
-  return POTS.map((p, i) => ({ i, x: p.x, y: floorHeight(p.x), loot: p.loot }));
+  return POTS.map((p, i) => ({ i, x: p.x, y: p.y ?? floorHeight(p.x), loot: p.loot }));
 }
 
 const inside = (x, y) => x >= 0 && y >= 0 && x < W && y < H;
@@ -75,7 +99,7 @@ export function setTile(w, x, y, t) {
   if (inside(x, y)) w.tiles[y * W + x] = t;
 }
 
-const SOLID = new Set([T.SAND, T.ROCK, T.CHEST, T.CLAM]);
+const SOLID = new Set([T.SAND, T.ROCK, T.CHEST, T.CLAM, T.HULL, T.RUBBLE]);
 
 export function isSolid(w, x, y) {
   return SOLID.has(tile(w, x, y));
@@ -136,6 +160,7 @@ export function spawnDaily(w, day, rng) {
   for (let i = 0; i < 3; i++) {
     for (let tries = 0; tries < 200; tries++) {
       const x = pick([94, 138]);
+      if (x >= WRECK.x0 - 1 && x <= WRECK.x1 + 1) continue;
       const y = floorY(w, x) + 1;
       if (tile(w, x, y) !== T.SAND || tile(w, x, y - 1) !== T.SAND) continue;
       setTile(w, x, y, T.CLAM);

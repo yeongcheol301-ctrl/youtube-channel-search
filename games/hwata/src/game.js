@@ -11,10 +11,11 @@ import {
 } from './rules.js';
 import {
   W, H, SEA, T, ZONES, ZONE_NAMES, BOAT_X, makeWorld, tile, setTile, isSolid, isWater, canDig, floorY,
-  chestSpots, spawnDaily, zoneAt,
+  chestSpots, spawnDaily, zoneAt, WRECK, openWreck,
 } from './world.js';
+import { BOSS, newBoss, stepBoss, hitBoss, calmBoss } from './boss.js';
 import { activeQuests, questChoices, questAct, QUESTS } from './quests.js';
-import { drawSprite, spriteSize, sprite, iconURL } from './sprites.js';
+import { drawSprite, spriteSize, sprite, iconURL, hasSprite } from './sprites.js';
 import { computeLight } from './light.js';
 import { sfx, unlockAudio, toggleMute, isMuted } from './audio.js';
 
@@ -64,8 +65,14 @@ function save() {
 function restore(data) {
   if (!data || !data.s || !Array.isArray(data.tiles) || data.tiles.length !== W * H) return null;
   const world = makeWorld();
+  const fresh = makeWorld();
   world.tiles.set(data.tiles);
   const s = data.s;
+  if (tile(world, WRECK.x0, WRECK.y1) !== T.HULL) {
+    // 난파선이 생기기 전 저장: 해구 바닥만 새 지도로 바꿔 끼운다
+    for (let y = WRECK.y0 - 2; y <= WRECK.y1 + 2; y++) for (let x = WRECK.x0 - 3; x <= WRECK.x1 + 2; x++) setTile(world, x, y, tile(fresh, x, y));
+    if (s.flags?.bossTamed) openWreck(world);
+  }
   s.dex ??= {};
   s.pages ??= [];
   s.pots ??= [];
@@ -172,14 +179,14 @@ function closePanel() {
 }
 
 function paintPortrait(canvas, key) {
-  const { w, h } = spriteSize(key);
-  const px = Math.max(4, Math.floor(72 / Math.max(w, h)));
-  canvas.width = (w + 2) * px;
-  canvas.height = (h + 2) * px;
+  const img = sprite(key);
+  const px = Math.max(2, Math.floor(72 / Math.max(img.width, img.height)));
+  canvas.width = (img.width + 2) * px;
+  canvas.height = (img.height + 2) * px;
   const g = canvas.getContext('2d');
   g.imageSmoothingEnabled = false;
   g.clearRect(0, 0, canvas.width, canvas.height);
-  g.drawImage(sprite(key), px, px, w * px, h * px);
+  g.drawImage(img, px, px, img.width * px, img.height * px);
 }
 
 function fadeTo(text, mid) {
@@ -226,6 +233,12 @@ function startDay() {
     }
   }
   G.ents = spawnFish(mulberry32(G.seed + s.day * 104729));
+  G.boss = s.day >= 4 || s.flags.bossTamed ? newBoss(BOSS_ARENA) : null;
+  if (G.boss && s.flags.bossTamed) { G.boss.state = 'tame'; G.boss.hp = 0; G.boss.x = WRECK.x0 + 3; G.boss.y = WRECK.y0 - 4; }
+  G.bossOn = false;
+  G.murk = 0;
+  G.floors = Array.from({ length: W }, (_, x) => floorY(G.world, x));
+  $('bossbar').hidden = true;
   G.shots = [];
   G.floats = [];
   G.parts = [];
@@ -295,7 +308,7 @@ function morningCard() {
     const tips = {
       2: '아낙과 노인들이 미역탕과 굴죽을 찾습니다. 굴은 바위 옆면에 붙어 있습니다.',
       3: '오늘부터 북어탕을 개발할 수 있습니다. 명태 떼는 산호 비탈 아래 깊은 물에서 다닙니다.',
-      4: '오늘부터 해삼환을 개발할 수 있습니다. 해삼은 깊은 바다 모래밭에 있습니다.',
+      4: '오늘부터 해삼환을 개발할 수 있습니다. 해삼은 깊은 바다 모래밭에 있습니다.\n\n어부들 말로는 해구의 난파선 근처에 등지느러미가 시커먼 큰 상어가 나타났답니다. 바위에 들이받게 유도하면 틈이 생긴다는데…',
       5: '청낭서를 싣고 가던 배가 이 바다에 가라앉았다는 소문입니다. 모래 속 상자를 찾아보세요.',
       6: '수면 근처에 누군가 술통을 붙잡고 떠 있다는 소문이 돕니다.',
       7: '마지막 날입니다. 오늘 밤 영업이 끝나면 1부가 마무리됩니다.',
@@ -325,6 +338,7 @@ function trackerLines() {
     const need = Object.entries(RECIPES[id].inputs).map(([k, n]) => `${MATERIALS[k].name} ${Math.min(count(s, k), n * 2)}/${n * 2}`).join(' · ');
     out.push({ icon: RECIPES[id].main, text: `${RECIPES[id].name} 개발: ${need}` });
   }
+  if (s.day >= 4 && !s.flags.bossTamed) out.push({ icon: 'boss', text: '검은지느러미 진정시키기 · 해구(돌진을 바위로 유도)' });
   const p = (s.pages ?? []).length;
   if (p < 3 && s.day >= 2) out.push({ icon: 'chest', text: `청낭서 ${p}/3 · 모래 속 상자를 [삽]으로` });
   if (!out.length) out.push({ icon: 'seaweed', text: '약재를 넉넉히 따 두세요' });
@@ -691,6 +705,11 @@ function updatePlayer(dt) {
   p.cool = Math.max(0, p.cool - dt);
   // 숨
   const deep = c.y - SEA;
+  const vent = VENTS.find((v) => Math.abs(c.x - v.x - 0.5) < 1.3 && c.y < G.floors[v.x] && c.y > G.floors[v.x] - 14);
+  if (vent && deep > 0.6) {
+    s.stamina = Math.min(maxStamina(s), s.stamina + 22 * dt);
+    if (!G.ventTold) { G.ventTold = true; toast('공기 방울 기둥! 여기서 숨을 채울 수 있다', 'good'); }
+  }
   if (deep < 0.6) s.stamina = Math.min(maxStamina(s), s.stamina + 45 * dt);
   else spendStamina(s, BREATH_PER_SEC * dt * (deep > 60 ? 1.25 : 1));
   if (deep > 0.6 && Math.random() < dt * (moving ? 3 : 1.2)) bubble(c.x + p.face * 0.4, c.y - 0.3);
@@ -712,8 +731,11 @@ function clearLine(x0, y0, x1, y1) {
 function findTarget() {
   const pc = playerCenter();
   const p = G.player;
+  const b = G.boss;
+  const bc = b ? { x: b.x + BOSS.w / 2, y: b.y + BOSS.h / 2 } : null;
   if (G.mode === 'hand') {
     if (nearBoat()) return { kind: 'boat', x: BOAT_X + 3, y: SEA - 1 };
+    if (b?.state === 'tired' && Math.hypot(bc.x - pc.x, bc.y - pc.y) < REACH + 2) return { kind: 'boss', x: b.x + BOSS.w * 0.45, y: b.y - 0.2 };
     let best = null, bd = 1e9;
     for (const q of G.props) {
       if (q.type === 'bottle') continue;
@@ -727,6 +749,10 @@ function findTarget() {
   if (G.mode === 'harpoon' || G.mode === 'net') {
     const range = G.mode === 'net' ? 5.4 : 10;
     let best = null, bs = 1e9;
+    if (G.mode === 'harpoon' && G.bossOn && bossFightable()) {
+      const d = Math.hypot(bc.x - pc.x, bc.y - pc.y);
+      if (d < range + 2) { best = { kind: 'fish', ent: { w: BOSS.w, h: BOSS.h }, x: bc.x, y: bc.y }; bs = d - 4; }
+    }
     for (const e of G.ents) {
       if (e.dead || e.type === 'drop' || e.type === 'jelly') continue;
       const f = FISH[e.type];
@@ -768,6 +794,7 @@ function actPress() {
     if (!t) { toast('가까이에 딸 것이 없습니다'); return; }
     if (t.kind === 'boat') return askHome();
     if (t.kind === 'npc') return openQuest(t.prop.quest);
+    if (t.kind === 'boss') return tameBoss();
     return tapProp(t.prop);
   }
   if (G.mode === 'harpoon' || G.mode === 'net') {
@@ -837,6 +864,20 @@ function updateShots(dt) {
 
 function shotHits(a) {
   const s = G.s;
+  const b = G.boss;
+  if (b && G.bossOn && bossFightable() && a.x > b.x - 0.2 && a.x < b.x + BOSS.w + 0.2 && a.y > b.y - 0.3 && a.y < b.y + BOSS.h + 0.3) {
+    if (a.mode === 'net') { floatText('그물로는 무리다!', b.x + 1, b.y - 0.5, '#ffb0a0'); return true; }
+    const stunned = b.state === 'stunned';
+    const r = hitBoss(b, harpoonDamage(s));
+    b.hitT = 0.25;
+    sfx.hit();
+    vib(30);
+    burst(a.x, a.y, stunned ? '#ffd76a' : '#e9e1cc', stunned ? 12 : 6, { speed: 2.5 });
+    floatText(stunned ? '급소!' : '팅!', b.x + BOSS.w / 2, b.y - 0.6, stunned ? '#ffd76a' : '#cfd6dc');
+    renderBossBar();
+    if (r.tired) bossTired();
+    return true;
+  }
   for (const e of G.ents) {
     if (e.dead || e.type === 'jelly') continue;
     const pad = a.mode === 'net' ? 0.5 : 0.1;
@@ -923,7 +964,7 @@ function updateEnts(dt) {
       continue;
     } else if (e.type === 'shark') {
       e.cool = Math.max(0, e.cool - dt);
-      const chase = d < 8 && pc.y > 50 && e.cool <= 0;
+      const chase = d < 8 && pc.y > 50 && e.cool <= 0 && !G.s.flags.bossTamed && !G.bossOn;
       if (chase) swimToward(e, pc.x - e.w / 2, pc.y - e.h / 2, 4.2, dt);
       else if (e.cool > 0) swimToward(e, ec.x + (ec.x - pc.x) * 3, ec.y, 3, dt);
       else {
@@ -993,13 +1034,106 @@ function updateDay(dt) {
   if (G.gauge) G.gauge.t = Math.min(G.gauge.t + dt, G.gauge.dur * 1.25);
   updateShots(dt);
   updateEnts(dt);
+  updateBoss(dt);
   updateParts(dt);
   G.shake = Math.max(0, (G.shake ?? 0) - dt);
+  G.murk = Math.max(0, G.murk - dt);
   const z = zoneAt(Math.floor(playerCenter().x));
   if (z !== G.zone) { G.zone = z; toast(ZONE_NAMES[z]); }
   if (G.s.stamina <= 0) return endDay('faint');
   if (G.time >= DAY_SECONDS) return endDay('dark');
   if (!G.warned && G.time >= DAY_SECONDS - 30) { G.warned = true; sfx.bell(); toast('해가 기운다. 배로 돌아가자!', 'bad'); }
+}
+
+// ---------- 보스: 검은지느러미 ----------
+
+const BOSS_ARENA = { x0: 119, x1: 138, y0: 82, y1: 100 };
+const VENTS = [{ x: 95 }, { x: 120 }];
+const bossFightable = () => G.boss && !['tired', 'tame'].includes(G.boss.state);
+
+function updateBoss(dt) {
+  const b = G.boss;
+  if (!b) return;
+  const pc = playerCenter();
+  b.hitT = Math.max(0, (b.hitT ?? 0) - dt);
+  if (!bossFightable()) { stepBoss(b, dt, pc, () => false); return; }
+  const near = pc.x > BOSS_ARENA.x0 - 3 && pc.x < BOSS_ARENA.x1 + 2 && pc.y > BOSS_ARENA.y0 - 6;
+  if (!near) {
+    if (G.bossOn) { G.bossOn = false; $('bossbar').hidden = true; b.state = 'circle'; b.t = 3; }
+    return;
+  }
+  if (!G.bossOn) {
+    G.bossOn = true;
+    renderBossBar();
+    $('bossbar').hidden = false;
+    sfx.bell();
+    G.shake = 0.4;
+    if (!G.s.flags.bossSeen) {
+      G.s.flags.bossSeen = true;
+      openPanel({
+        title: '검은지느러미',
+        body: '난파선 위로 집채만 한 그림자가 돈다. 등지느러미에 녹슨 작살이 박힌 채, 핏발 선 눈으로 화타를 노려본다.\n\n정면으로는 못 이긴다. 놈이 몸을 웅크리면(붉은 줄) 옆으로 비켜서, 바위 기둥이나 벽에 들이받게 하자. 부딪혀 어지러울 때 작살을 꽂으면 두 배로 먹힌다.\n\n숨이 모자라면 왼쪽 바닥의 공기 방울 기둥으로!',
+        portrait: 'boss',
+        choices: [{ label: '작살을 쥔다', kind: 'primary', onClick: () => { closePanel(); setMode('harpoon'); } }],
+      });
+    } else toast('검은지느러미가 다가온다!', 'bad');
+  }
+  const ev = stepBoss(b, dt, pc, (x, y) => isSolid(G.world, x, y));
+  const bc = { x: b.x + BOSS.w / 2, y: b.y + BOSS.h / 2 };
+  for (const e of ev) {
+    if (e === 'windup') { sfx.wrong(); vib(20); }
+    if (e === 'charge') { G.shake = 0.2; sfx.splash(); bubble(bc.x, bc.y, 6); }
+    if (e === 'crash') {
+      G.shake = 0.6;
+      sfx.breakDirt();
+      vib([40, 30, 60]);
+      burst(bc.x + b.dir.x * 2, bc.y, '#d9c58f', 16, { speed: 4, size: 0.18 });
+      floatText('지금이다!', bc.x, b.y - 0.8, '#ffd76a');
+    }
+    if (e === 'bite') hurt(20, '검은지느러미에게 물렸다!', bc);
+    if (e === 'sand') {
+      G.murk = 3.2;
+      toast('모래를 일으켰다! 앞이 흐리다', 'bad');
+      burst(bc.x, bc.y + 1, '#b8a678', 26, { speed: 5, size: 0.4, life: 1.6, grav: -0.3 });
+    }
+  }
+}
+
+function renderBossBar() {
+  const b = G.boss;
+  $('bossFill').style.width = `${(b.hp / BOSS.hp) * 100}%`;
+  $('bossbar').classList.toggle('angry', b.phase === 2);
+}
+
+function bossTired() {
+  G.shake = 0.5;
+  sfx.page();
+  $('bossbar').hidden = true;
+  G.bossOn = false;
+  setMode('hand');
+  toast('검은지느러미가 지쳐 가라앉는다. 다가가서 [작살 뽑기]', 'good');
+  renderTracker();
+}
+
+function tameBoss() {
+  const s = G.s, b = G.boss;
+  if (!calmBoss(b)) return;
+  s.flags.bossTamed = true;
+  openWreck(G.world);
+  s.money += 40;
+  G.shake = 0.4;
+  sfx.page();
+  vib([30, 40, 30]);
+  burst(b.x + BOSS.w / 2, b.y, '#ffd76a', 18, { speed: 3, glow: true, grav: 0 });
+  for (const [x, y] of [[122, 105], [128, 101]]) burst(x + 0.5, y + 0.5, '#8a7a5a', 14, { speed: 3 });
+  save();
+  renderTracker();
+  openPanel({
+    title: '검은지느러미',
+    body: '녹슨 작살을 힘껏 뽑아내자 상어가 몸을 떤다. 화타가 상처에 해초 고약을 문질러 주니, 핏발 선 눈빛이 가라앉는다.\n\n검은지느러미는 꼬리를 크게 휘둘러 난파선 입구를 막고 있던 돌무더기를 쓸어 낸다. 이제 배 안으로 들어갈 수 있다!\n\n(작살 값으로 받은 엽전 40냥 · 이제 해구의 상어들이 덤비지 않습니다)',
+    portrait: 'boss',
+    choices: [{ label: '난파선 안으로', kind: 'primary', onClick: closePanel }],
+  });
 }
 
 // ---------- 그리기 ----------
@@ -1101,6 +1235,43 @@ function drawBackground(f) {
       ctx.fill();
     }
     ctx.restore();
+    drawFarRocks(seaY);
+    drawMotes(top);
+  }
+}
+
+// 멀리 보이는 바위 언덕(두 겹, 천천히 따라온다)
+function drawFarRocks(seaY) {
+  const { cw, ch, ts } = view;
+  if (!G.floors) return;
+  for (const [k, lift, col] of [[0.35, 2, 'rgba(14,56,84,0.4)'], [0.6, -1, 'rgba(8,38,60,0.6)']]) {
+    ctx.fillStyle = col;
+    ctx.beginPath();
+    ctx.moveTo(0, ch);
+    for (let sx = 0; sx <= cw + 6; sx += 6) {
+      const wx = G.cam.x * k + sx / ts + k * 40;
+      const fi = clamp(Math.floor(wx), 0, W - 1);
+      const base = Math.min(G.floors[fi], 110);
+      const bump = Math.sin(wx * 0.23) * 2.5 + Math.sin(wx * 0.071 + k * 9) * 4 + (hash(Math.floor(wx / 3), k * 10) - 0.5) * 1.5;
+      const wy = Math.max(base, SEA + 16) - lift - bump;
+      ctx.lineTo(sx, (wy - G.cam.y) * ts);
+    }
+    ctx.lineTo(cw, ch);
+    ctx.fill();
+  }
+}
+
+// 물속을 떠다니는 작은 부유물
+function drawMotes(top) {
+  const { cw, ch, ts } = view;
+  ctx.fillStyle = 'rgba(210,240,255,0.35)';
+  for (let i = 0; i < 46; i++) {
+    const span = cw + 40, vspan = ch + 40;
+    const x = ((hash(i, 71) * span - G.cam.x * ts * 0.8 + Math.sin(G.clock * 0.4 + i) * 10) % span + span) % span - 20;
+    const y = ((hash(i, 72) * vspan - G.cam.y * ts * 0.8 - G.clock * (4 + hash(i, 73) * 6)) % vspan + vspan) % vspan - 20;
+    if (y < top) continue;
+    const r = hash(i, 74) < 0.2 ? 2 : 1;
+    ctx.fillRect(x, y, r, r);
   }
 }
 
@@ -1113,7 +1284,40 @@ function drawTile(t, x, y, sx, sy, ts) {
       ctx.fillStyle = i % 2 ? '#b39a66' : '#dcc690';
       ctx.fillRect(sx + Math.floor(hash(x * 3 + i, y) * 7) * px, sy + Math.floor(hash(y * 5 - i, x) * 7) * px, px * 2, px);
     }
-    if (!isSolid(G.world, x, y - 1)) { ctx.fillStyle = '#e6d6a8'; ctx.fillRect(sx, sy, ts + 0.5, px); }
+    if (!isSolid(G.world, x, y - 1)) {
+      ctx.fillStyle = '#e6d6a8';
+      ctx.fillRect(sx, sy, ts + 0.5, px);
+      // 수면에서 내려온 물결 빛
+      const a = y < 70 ? Math.max(0, Math.sin(G.clock * 1.8 + x * 1.3) * Math.sin(G.clock * 1.1 - x * 0.7)) * 0.35 * (1 - y / 70) : 0;
+      if (a > 0.02) { ctx.fillStyle = `rgba(255,250,215,${a})`; ctx.fillRect(sx + px, sy + px, ts - px * 2, px * 2); }
+    }
+    return;
+  }
+  if (t === T.HULL) {
+    ctx.fillStyle = '#4a3426';
+    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+    ctx.fillStyle = '#3a281c';
+    for (let i = 0; i < 3; i++) ctx.fillRect(sx, sy + (i * 3 + 1) * px, ts + 0.5, px * 0.6);
+    ctx.fillStyle = '#5c4331';
+    ctx.fillRect(sx + Math.floor(hash(x, y) * 6) * px, sy + 2 * px, px * 2, px);
+    if (hash(x, y * 2) < 0.4) { ctx.fillStyle = '#2f6b55'; ctx.fillRect(sx + Math.floor(hash(y, x) * 6) * px, sy + 5 * px, px * 2, px * 2); }
+    ctx.fillStyle = '#9a8a6a';
+    if ((x + y) % 3 === 0) ctx.fillRect(sx + px * 3.5, sy + px * 3.5, px, px);
+    ctx.fillStyle = '#21160f';
+    if (!isSolid(G.world, x, y - 1)) ctx.fillRect(sx, sy, ts + 0.5, px);
+    if (!isSolid(G.world, x, y + 1)) ctx.fillRect(sx, sy + ts - px, ts + 0.5, px);
+    return;
+  }
+  if (t === T.RUBBLE) {
+    ctx.fillStyle = 'rgba(20,30,40,0.6)';
+    ctx.fillRect(sx, sy, ts + 0.5, ts + 0.5);
+    for (let i = 0; i < 5; i++) {
+      const r = (1.4 + hash(x * 5 + i, y) * 1.6) * px;
+      ctx.fillStyle = ['#6a6458', '#827a6a', '#58524a'][i % 3];
+      ctx.beginPath();
+      ctx.arc(sx + (1.5 + hash(x + i, y * 7) * 5) * px, sy + (1.5 + hash(y + i * 3, x) * 5) * px, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
     return;
   }
   if (t === T.ROCK) {
@@ -1246,6 +1450,7 @@ function render() {
 
   const x0 = Math.max(0, Math.floor(G.cam.x) - 1), x1 = Math.min(W - 1, Math.ceil(G.cam.x + viewW));
   const y0 = Math.max(0, Math.floor(G.cam.y) - 1), y1 = Math.min(H - 1, Math.ceil(G.cam.y + viewH));
+  drawWreckBack(ts);
   for (let x = x0; x <= x1; x++) {
     for (let y = y0; y <= y1; y++) {
       const t = tile(G.world, x, y);
@@ -1254,12 +1459,18 @@ function render() {
     }
   }
   drawDecor(x0, x1, ts);
+  drawVents(ts);
   drawProps(ts);
   drawEnts(ts);
+  drawBoss(ts);
   drawPlayer(ts);
   drawShots(ts);
   drawParts(ts);
   drawShade(x0, y0, x1, y1, ts);
+  if (G.murk > 0) {
+    ctx.fillStyle = `rgba(120,104,70,${Math.min(0.6, G.murk * 0.25)})`;
+    ctx.fillRect(0, 0, cw, ch);
+  }
   drawBoat(ts);
   drawSurface(ts);
   drawOverlays(ts);
@@ -1279,9 +1490,122 @@ function render() {
   G.cam.x -= shake;
 }
 
+// 난파선의 부러진 돛대와 찢어진 돛(타일 뒤에 그린다)
+function drawWreckBack(ts) {
+  const sx = (WRECK.x0 - G.cam.x) * ts, sy = (WRECK.y0 - G.cam.y) * ts;
+  if (sx > view.cw + ts * 4 || sx + ts * 18 < 0 || sy < -ts * 14 || sy > view.ch + ts * 10) return;
+  const mx = sx + ts * 7, my = sy + ts * 0.2;
+  ctx.save();
+  ctx.translate(mx, my);
+  ctx.rotate(-0.28);
+  ctx.fillStyle = '#3a281c';
+  ctx.fillRect(-ts * 0.18, -ts * 10, ts * 0.36, ts * 10);
+  ctx.fillRect(-ts * 2.4, -ts * 8.2, ts * 4.8, ts * 0.22);
+  ctx.fillStyle = 'rgba(207,198,168,0.38)';
+  ctx.beginPath();
+  ctx.moveTo(-ts * 2.2, -ts * 8);
+  ctx.lineTo(ts * 2.2, -ts * 8);
+  const sway = Math.sin(G.clock * 0.9) * ts * 0.3;
+  ctx.lineTo(ts * 1.8 + sway, -ts * 4.6);
+  ctx.lineTo(ts * 0.9 + sway, -ts * 5.4);
+  ctx.lineTo(ts * 0.1 + sway, -ts * 3.8);
+  ctx.lineTo(-ts * 1.2 + sway, -ts * 4.9);
+  ctx.lineTo(-ts * 2 + sway, -ts * 4.2);
+  ctx.closePath();
+  ctx.fill();
+  ctx.restore();
+  // 뱃머리 장식
+  ctx.fillStyle = '#4a3426';
+  ctx.beginPath();
+  ctx.moveTo(sx + ts * 15, sy + ts * 1);
+  ctx.lineTo(sx + ts * 17.2, sy - ts * 0.6);
+  ctx.lineTo(sx + ts * 15, sy + ts * 3);
+  ctx.fill();
+}
+
+function drawVents(ts) {
+  for (const v of VENTS) {
+    const fy = G.floors?.[v.x] ?? floorY(G.world, v.x);
+    const sx = (v.x + 0.5 - G.cam.x) * ts, sy = (fy - G.cam.y) * ts;
+    if (sx < -ts * 2 || sx > view.cw + ts * 2) continue;
+    ctx.fillStyle = '#3d4950';
+    ctx.fillRect(sx - ts * 0.6, sy - ts * 0.3, ts * 1.2, ts * 0.35);
+    const g = ctx.createLinearGradient(0, sy - ts * 14, 0, sy);
+    g.addColorStop(0, 'rgba(190,240,255,0)');
+    g.addColorStop(1, 'rgba(190,240,255,0.16)');
+    ctx.fillStyle = g;
+    ctx.fillRect(sx - ts * 0.7, sy - ts * 14, ts * 1.4, ts * 14);
+    ctx.strokeStyle = 'rgba(225,250,255,0.75)';
+    ctx.lineWidth = 1;
+    for (let i = 0; i < 9; i++) {
+      const t = (G.clock * 0.35 + hash(i, v.x)) % 1;
+      const by = sy - t * ts * 14, bx = sx + Math.sin(G.clock * 3 + i * 2) * ts * 0.35;
+      ctx.beginPath(); ctx.arc(bx, by, ts * (0.08 + hash(i, 5) * 0.12), 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+}
+
+function drawBoss(ts) {
+  const b = G.boss;
+  if (!b) return;
+  const sx = (b.x - G.cam.x) * ts, sy = (b.y - G.cam.y) * ts;
+  if (sx > view.cw + ts * 6 || sx < -ts * 10 || sy > view.ch + ts * 4 || sy < -ts * 4) return;
+  const { w, h } = spriteSize('boss');
+  const scale = (BOSS.w * ts) / w;
+  const bc = { x: sx + BOSS.w * ts / 2, y: sy + BOSS.h * ts / 2 };
+  // 돌진 예고: 붉은 줄
+  if (b.state === 'windup') {
+    const a = 0.4 + Math.sin(G.clock * 30) * 0.3;
+    ctx.strokeStyle = `rgba(255,80,60,${a})`;
+    ctx.lineWidth = Math.max(3, ts * 0.25);
+    ctx.setLineDash([ts * 0.5, ts * 0.3]);
+    ctx.beginPath(); ctx.moveTo(bc.x, bc.y); ctx.lineTo(bc.x + b.dir.x * ts * 12, bc.y + b.dir.y * ts * 12); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+  const lean = b.state === 'charge' ? Math.atan2(b.dir.y, Math.abs(b.dir.x)) * 0.6 : b.state === 'tired' ? 0.35 : 0;
+  const flip = b.face < 0;
+  const frame = b.state === 'tired' || b.state === 'stunned' ? 'boss' : Math.floor(G.clock * (b.state === 'charge' ? 12 : 5)) % 2 ? 'boss2' : 'boss';
+  ctx.save();
+  ctx.translate(bc.x, bc.y);
+  ctx.rotate(flip ? -lean : lean);
+  if (b.hitT > 0) ctx.globalAlpha = 0.55 + Math.sin(G.clock * 50) * 0.3;
+  if (b.state === 'tame') ctx.globalAlpha = 0.9;
+  drawSprite(ctx, frame, -w * scale / 2, -h * scale / 2, scale, flip);
+  ctx.globalAlpha = 1;
+  // 등지느러미에 박힌 녹슨 작살
+  if (b.state !== 'tame') {
+    const fx = (flip ? 1 : -1) * w * scale * 0.06, fy = -h * scale * 0.42;
+    ctx.strokeStyle = '#8a5a3a';
+    ctx.lineWidth = Math.max(2, scale * 1.2);
+    ctx.beginPath(); ctx.moveTo(fx, fy); ctx.lineTo(fx + (flip ? 1 : -1) * ts * 0.9, fy - ts * 0.9); ctx.stroke();
+    ctx.fillStyle = '#b07a4a';
+    ctx.fillRect(fx - scale, fy - scale, scale * 2.5, scale * 2.5);
+  }
+  ctx.restore();
+  if (b.state === 'stunned') {
+    for (let i = 0; i < 3; i++) {
+      const a = G.clock * 5 + (i * Math.PI * 2) / 3;
+      ctx.fillStyle = '#ffd76a';
+      ctx.font = `bold ${Math.round(ts * 0.6)}px sans-serif`;
+      ctx.textAlign = 'center';
+      ctx.fillText('★', bc.x + Math.cos(a) * ts * 1.2, sy - ts * 0.4 + Math.sin(a) * ts * 0.3);
+    }
+  }
+  if (b.state === 'tired') {
+    ctx.fillStyle = '#ffd76a';
+    ctx.font = `bold ${Math.round(ts * 0.5)}px "Gowun Dodum", sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('…', bc.x, sy - ts * 0.5 + Math.sin(G.clock * 3) * 3);
+  }
+}
+
 function drawShade(x0, y0, x1, y1, ts) {
   const pc = playerCenter();
-  const L = computeLight(G.world, x0, y0, x1, y1, [{ x: pc.x - 0.5, y: pc.y - 0.5, r: G.s.upgrades.lantern ? 1 : 0.7 }]);
+  const lights = [{ x: pc.x - 0.5, y: pc.y - 0.5, r: G.s.upgrades.lantern ? 1 : 0.7 }];
+  const b = G.boss;
+  if (b && (G.bossOn || b.state === 'tired' || b.state === 'tame')) lights.push({ x: b.x + BOSS.w / 2 - 0.5, y: b.y + BOSS.h / 2 - 0.5, r: 0.75 });
+  for (const v of VENTS) lights.push({ x: v.x, y: (G.floors?.[v.x] ?? 0) - 3, r: 0.55 });
+  const L = computeLight(G.world, x0, y0, x1, y1, lights);
   const w = x1 - x0 + 1, h = y1 - y0 + 1;
   if (shadeCvs.width !== w || shadeCvs.height !== h) { shadeCvs.width = w; shadeCvs.height = h; }
   const img = shadeCtx.createImageData(w, h);
@@ -1365,7 +1689,9 @@ function drawEnts(ts) {
     let sx = (e.x - G.cam.x) * ts, sy = (e.y - G.cam.y) * ts;
     if (sx < -ts * 4 || sx > view.cw + ts * 4) continue;
     if (e.type === 'drop') { drawSprite(ctx, e.item, sx, sy + Math.sin(G.clock * 3) * px, px * 1.3); continue; }
-    const key = FISH_SPRITE[e.type];
+    const base = FISH_SPRITE[e.type];
+    const alt = base + '2';
+    const key = hasSprite(alt) && Math.floor(G.clock * (Math.abs(e.vx) > 1.5 ? 8 : 4) + e.home.x * 3) % 2 ? alt : base;
     const { w, h } = spriteSize(key);
     let scale = (e.w * ts) / w;
     if (e.type === 'moray') {
@@ -1375,7 +1701,7 @@ function drawEnts(ts) {
     }
     const wig = e.type === 'jelly' ? 0 : Math.sin(G.clock * 10 + e.x) * px * 0.3;
     if (e.hitT > 0) ctx.globalAlpha = 0.5 + Math.sin(G.clock * 40) * 0.3;
-    drawSprite(ctx, key, sx, sy + wig + (e.h * ts - h * scale) / 2, scale, e.face < 0 && e.type !== 'jelly' && e.type !== 'seahorseFish' ? false : e.type === 'jelly' || e.type === 'seahorseFish' ? false : true);
+    drawSprite(ctx, key, sx, sy + wig + (e.h * ts - h * scale) / 2, scale, e.type !== 'jelly' && e.face < 0);
     ctx.globalAlpha = 1;
     if (e.type === 'shark' && e.hp < FISH.shark.hp) {
       ctx.fillStyle = 'rgba(0,0,0,0.5)';
@@ -1390,19 +1716,19 @@ function drawPlayer(ts) {
   const p = G.player;
   const c = playerCenter();
   const sx = (c.x - G.cam.x) * ts, sy = (c.y - G.cam.y) * ts;
-  const scale = ts / 7.5;
-  const frame = Math.floor(p.kick) % 2 ? 'swim2' : 'swim';
+  const scale = ts / 11;
+  const frame = ['swim', 'swim1', 'swim2', 'swim3'][Math.floor(p.kick) % 4];
   ctx.save();
   ctx.translate(sx, sy);
   if (p.face < 0) ctx.scale(-1, 1);
   ctx.rotate(p.ang);
   if (G.hurtT > 0 && Math.floor(G.clock * 20) % 2) ctx.globalAlpha = 0.5;
-  drawSprite(ctx, frame, -8 * scale, -3.5 * scale, scale);
+  drawSprite(ctx, frame, -12 * scale, -5.5 * scale, scale);
   const tool = TOOL_SPRITE[G.mode];
   if (tool && G.mode !== 'hand') {
     const ang = p.swing > 0 ? -Math.sin((p.swing / 0.25) * Math.PI) * 0.9 : 0;
     ctx.save();
-    ctx.translate(5 * scale, 1 * scale);
+    ctx.translate(5 * scale, 3.5 * scale);
     ctx.rotate(ang + (G.mode === 'shovel' ? 0.4 : -0.2));
     drawSprite(ctx, tool, 0, -4 * scale * 0.8, scale * 0.8);
     ctx.restore();
@@ -1570,9 +1896,10 @@ function updateHud() {
   let label = ACT_LABEL[G.mode];
   if (G.mode === 'hand' && t?.kind === 'npc') label = '말 걸기';
   if (G.mode === 'hand' && t?.kind === 'boat') label = '배 타기';
+  if (G.mode === 'hand' && t?.kind === 'boss') label = '작살 뽑기';
   const act = $('actBtn');
   if ($('actLabel').textContent !== label) $('actLabel').textContent = label;
-  const icon = G.mode === 'hand' && t?.prop ? (t.kind === 'npc' ? 'hand' : t.prop.type) : TOOL_SPRITE[G.mode];
+  const icon = G.mode === 'hand' && t?.prop ? (t.kind === 'npc' ? 'hand' : t.prop.type) : G.mode === 'hand' && t?.kind === 'boss' ? 'harpoon' : TOOL_SPRITE[G.mode];
   if (act.dataset.icon !== icon) { act.dataset.icon = icon; $('actIcon').src = iconURL(icon); }
   act.classList.toggle('idle', !t && G.mode !== 'harpoon');
 }
@@ -2030,7 +2357,8 @@ function renderEnding() {
     <p>익힌 약: ${meds}</p>
     <p>청낭서 ${(s.pages ?? []).length}/3장 · 재료 도감 ${Object.keys(s.dex ?? {}).length}가지</p>
     <p>${s.flags.zhangfei ? '장비가 조수로 들어왔습니다. "형님들께도 의원 양반 얘기를 해 두겠소!"' : '물에 빠졌던 큰 사내는 끝내 오지 않았습니다. 다음에는 북어탕을 미리 달여 두세요.'}</p>
-    <hr><p>다음 이야기: 해구 밑바닥의 난파선. 첫 보스 「검은지느러미 상어」와 유비 삼형제가 기다립니다.</p>
+    <p>${s.flags.bossTamed ? '검은지느러미의 지느러미에서 녹슨 작살을 뽑아 주었습니다. 이제 해구의 상어들이 화타를 해치지 않습니다.' : '검은지느러미는 아직 해구를 지키고 있습니다.'}</p>
+    <hr><p>다음 이야기: 더 깊은 바다의 소용돌이. 유비 삼형제가 의원을 찾아옵니다.</p>
     <button class="btn gold" data-act="restart">처음부터 다시</button>`);
 }
 
