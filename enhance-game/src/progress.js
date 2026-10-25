@@ -99,7 +99,7 @@ export function autoStep(s, cfg, rng) {
   if (s.meta.rebirths < AUTO_REBIRTHS) return fail('환생 3회차부터');
   const pending = s.weapons.find((w) => w.pendingTraits);
   if (pending) {
-    pickTrait(s, pending.id, pending.pendingTraits[0]);
+    pickTrait(s, pending.id, recommendTrait(pending.type, pending.pendingTraits));
     return { ok: true, action: 'trait' };
   }
   const low = s.weapons.filter((w) => w.level < cfg.target).sort((a, b) => enhancePrice(s, a) - enhancePrice(s, b))[0];
@@ -142,13 +142,11 @@ function canSpendCoins(s) {
 
 // 지금 가장 먼저 할 일 하나. tab은 그 일을 하는 화면.
 export function nextStep(s) {
-  if (s.weapons.some((w) => w.pendingTraits)) return { key: 'trait', tab: 'forge', text: '특성을 고를 무기가 있습니다' };
+  if (s.weapons.some((w) => w.pendingTraits)) return { key: 'trait', tab: 'forge', act: 'open-trait', text: '눌러서 특성 고르기' };
   if (canKillBoss(s)) return { key: 'boss', tab: 'boss', text: `${s.maxStage + 1}단계 보스를 잡을 수 있습니다` };
   if (!s.weapons.length) return { key: 'buy', tab: 'forge', text: '검을 사서 시작하세요' };
-  if (!miners(s).length) return { key: 'mine', tab: 'forge', text: '무기 하나를 채집으로 보내 미네랄을 버세요' };
-  if (!fighters(s).length) return { key: 'battle', tab: 'forge', act: 'arrange', text: '눌러서 센 무기를 전투로 보내기 (나머지는 채집)' };
   if (canSpendCoins(s)) return { key: 'shop', tab: 'shop', text: '환생 코인으로 새 무기나 능력을 사세요' };
-  return { key: 'enhance', tab: 'forge', text: '전투 무기를 강화해 보스를 준비하세요' };
+  return { key: 'enhance', tab: 'forge', text: '무기를 강화해 보스를 준비하세요 (자동 강화도 있습니다)' };
 }
 
 export function alerts(s) {
@@ -159,15 +157,6 @@ export function alerts(s) {
   };
 }
 
-// 센 무기 절반은 전투, 나머지는 채집. 한 자루뿐이면 채집에 둔다(돈이 먼저).
-export function arrangeBest(s) {
-  const ctx = ctxOf(s);
-  const sorted = [...s.weapons].sort((a, b) => weaponAttack(b, ctx) - weaponAttack(a, ctx));
-  const nBattle = Math.min(10, Math.floor(sorted.length / 2));
-  sorted.forEach((w, i) => assign(s, w.id, i < nBattle ? 'battle' : 'mine'));
-  return { ok: true, battle: nBattle };
-}
-
 // 모든 무기가 전투에 나갔다고 칠 때의 샌드백 DPS.
 export function potentialDps(s) {
   return bossFight(s.weapons, SANDBAG, ctxOf(s)).damage / FIGHT_SECONDS;
@@ -175,4 +164,16 @@ export function potentialDps(s) {
 
 export function battleDps(s) {
   return bossFight(fighters(s), SANDBAG, ctxOf(s)).damage / FIGHT_SECONDS;
+}
+
+// 무기 특기에 맞는 특성 우선순위. 목록에 없으면 첫 번째.
+const TRAIT_PRIORITY = {
+  sword: ['critMult', 'critChance', 'atkPct', 'speedPct', 'armorBreak'],
+  axe: ['armorBreak', 'atkPct', 'critChance', 'speedPct', 'critMult'],
+  staff: ['atkPct', 'speedPct', 'critMult', 'critChance', 'armorBreak'],
+  bow: ['speedPct', 'critChance', 'atkPct', 'critMult', 'armorBreak'],
+};
+
+export function recommendTrait(type, options) {
+  return (TRAIT_PRIORITY[type] ?? []).find((k) => options.includes(k)) ?? options[0];
 }

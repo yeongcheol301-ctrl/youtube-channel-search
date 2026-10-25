@@ -77,3 +77,16 @@ test('combining two +10 into next grade is an upgrade', () => {
   assert.ok(weaponAttack(w('sword', { grade: 1 }), ctx) > 1.5 * weaponAttack(w('sword', { level: 10 }), ctx));
   assert.ok(weaponAttack(w('sword', { grade: 2 }), ctx) > weaponAttack(w('sword', { grade: 1 }), ctx));
 });
+
+test('minerals scale linearly with mining DPS', () => {
+  const one = [w('sword', { level: 10 })];
+  const two = [w('sword', { level: 10 }), w('sword', { level: 10, id: 2 })];
+  assert.ok(Math.abs(mineralsPerSec(two, 0, ctx) / mineralsPerSec(one, 0, ctx) - 2) < 1e-9);
+  const strong = [w('sword', { level: 30 })];
+  assert.ok(Math.abs(mineralsPerSec(strong, 0, ctx) / buildingDps(strong, ctx) - mineralsPerSec(one, 0, ctx) / buildingDps(one, ctx)) < 1e-9);
+});
+
+test('a building upgrade raises minerals per DPS', () => {
+  const one = [w('sword', { level: 5 })];
+  assert.ok(mineralsPerSec(one, 1, ctx) > mineralsPerSec(one, 0, ctx));
+});

@@ -6,7 +6,7 @@ import { challengeBoss, measureDps, rebirthCoins, rebirth, unlock, buyPerm, PERM
 const always = (v) => () => v;
 const within = (a, b, pct) => assert.ok(Math.abs(a - b) <= b * pct, `${a} not within ${pct} of ${b}`);
 
-test('boss challenge needs fighters', () => {
+test('boss challenge needs at least one weapon', () => {
   assert.equal(challengeBoss(newGame()).ok, false);
 });
 
@@ -16,9 +16,9 @@ test('strong weapons clear stage 1 and earn minerals', () => {
   assert.equal(r.killed, true); assert.equal(s.maxStage, 1); assert.ok(s.minerals > m);
 });
 
-test('miners do not fight bosses', () => {
-  const s = newGame(); buy(s, 'sword'); s.weapons[0].level = 30; assign(s, s.weapons[0].id, 'mine');
-  assert.equal(challengeBoss(s).ok, false); assert.equal(s.maxStage, 0);
+test('all weapons go to the boss even while mining', () => {
+  const s = newGame(); buy(s, 'sword'); s.weapons[0].level = 30;
+  assert.equal(challengeBoss(s).killed, true); assert.equal(s.maxStage, 1);
 });
 
 test('weak weapons fail and stage stays', () => {
@@ -93,4 +93,19 @@ test('attack and reward perms compound so rebirths keep paying', async () => {
   const c = ctxOf(s);
   assert.ok(Math.abs(1 + c.perm.atkPct - 1.25 ** 2) < 1e-9);
   assert.ok(Math.abs(1 + c.perm.rewardPct - 1.25 ** 3) < 1e-9);
+});
+
+test('recommended trait follows the weapon specialty', async () => {
+  const { recommendTrait } = await import('../src/progress.js');
+  assert.equal(recommendTrait('sword', ['atkPct', 'critMult', 'speedPct']), 'critMult');
+  assert.equal(recommendTrait('axe', ['atkPct', 'armorBreak', 'critChance']), 'armorBreak');
+  assert.equal(recommendTrait('staff', ['speedPct', 'atkPct', 'critMult']), 'atkPct');
+  assert.equal(recommendTrait('bow', ['atkPct', 'critChance', 'speedPct']), 'speedPct');
+});
+
+test('auto enhance picks the recommended trait, not the first one', () => {
+  const s = newGame(); s.minerals = 1e6; buy(s, 'sword');
+  s.weapons[0].pendingTraits = ['speedPct', 'atkPct', 'critMult'];
+  autoStep(s, { target: 20 }, always(0));
+  assert.deepEqual(s.weapons[0].traits, ['critMult']);
 });

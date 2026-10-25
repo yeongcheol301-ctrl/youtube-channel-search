@@ -11,7 +11,7 @@ import {
 import {
   challengeBoss, measureDps, rebirthCoins, rebirth, nextBoss, nextUnlock, unlock, buyPerm, PERMS,
   permCost, autoStep, bulkSell, shouldHintRebirth, AUTO_REBIRTHS, BULK_SELL_REBIRTHS, bossReward,
-  nextStep, alerts, arrangeBest, potentialDps, battleDps,
+  nextStep, alerts, potentialDps, battleDps, recommendTrait,
 } from './progress.js';
 import { drawSprite, GRADE_COLORS } from './sprites.js';
 
@@ -165,8 +165,7 @@ function renderHeader() {
     </div>
     <div class="hud-sub">
       <span>초당 <b>+${fmt(incomePerSec(s))}</b></span>
-      <span>전투 DPS <b>${fmt(battleDps(s))}</b></span>
-      <span>채집 DPS <b>${fmt(buildingDps(miners(s), ctxOf(s)))}</b></span>
+      <span>총 DPS <b>${fmt(battleDps(s))}</b></span>
       <span>보스 <b>${s.maxStage}</b>단계</span>
       <span>코인 <b>${fmt(s.meta.coins)}</b></span>
     </div>
@@ -181,7 +180,6 @@ function weaponTile(w) {
   return `<button type="button" class="tile aura-${auraOf(w.level)} ${on ? 'on' : ''}" data-act="select" data-id="${w.id}" style="--grade:${gradeColor(w.grade)}" aria-label="${GRADES[w.grade]} ${WEAPONS[w.type].name} +${w.level}">
     ${art(w.type, w.grade, w.level, 40)}
     <span class="tile-lv">+${w.level}</span>
-    <span class="tile-loc loc-${w.loc}">${w.loc === 'mine' ? '채집' : '전투'}</span>
     ${w.pendingTraits ? '<span class="tile-dot" title="특성 선택 대기"></span>' : ''}
   </button>`;
 }
@@ -218,7 +216,6 @@ function renderForge() {
       <span class="eb-meta">${fmt(cost)} 미네랄 · 성공 ${pct(rate)}</span>
     </button>`}
     <div class="row">
-      ${btn('toggle-loc', w.loc === 'mine' ? '전투로 보내기' : '채집으로 보내기')}
       ${btn('combine-all', pairs ? `자동 조합 (${pairs}회)` : '조합 불가', { disabled: !pairs })}
       ${btn('sell', `판매 +${fmt(sellValue(w))}`)}
     </div>`;
@@ -238,28 +235,34 @@ function renderForge() {
     </div>` : '';
   return `${main}
     <h3 class="sec">무기 구매</h3><div class="shop">${shop}</div>
-    <h3 class="sec">보유 무기 <small>${s.weapons.length}자루 · 전투 ${fighters(s).length} · 채집 ${miners(s).length}</small></h3>
+    <h3 class="sec">보유 무기 <small>${s.weapons.length}자루 · 평소엔 모두 채집, 보스전엔 전원 출동</small></h3>
     <div class="tiles">${s.weapons.map(weaponTile).join('') || '<p class="note">아직 무기가 없습니다.</p>'}</div>
     ${autoBox}`;
 }
 
 // ---- 채집장 ----
-// 채집 무기들이 광맥을 빙 둘러싸고 각자 공속대로 내려친다. 많으면 12자루까지만 그린다.
-const ARENA_MAX = 12;
-function renderArena() {
-  const list = miners(s).sort((a, b) => b.level - a.level);
+// 무기 전부가 가운데 목표를 빙 둘러싸고 각자 공속대로 휘두른다. 겹쳐도 그대로 그린다(성능 때문에 80자루까지).
+const ARENA_MAX = 80;
+function strikersHtml(list, fast = 1) {
   const shown = list.slice(0, ARENA_MAX);
   const n = shown.length;
-  const strikers = shown.map((w, i) => {
-    const dur = Math.min(1.6, Math.max(0.45, 1 / weaponHitsPerSec(w)));
-    return `<span class="striker" style="--a:${Math.round((360 / n) * i)}deg"><span class="arm" style="--dur:${dur.toFixed(2)}s;--delay:${((i * 0.37) % dur).toFixed(2)}s">${art(w.type, w.grade, w.level, 48)}</span></span>`;
+  return shown.map((w, i) => {
+    const dur = Math.min(1.6, Math.max(0.4, 1 / weaponHitsPerSec(w))) / fast;
+    const ring = n > 10 ? (i % 3 === 0 ? 'r-in' : i % 3 === 1 ? 'r-mid' : '') : '';
+    const angle = (360 / n) * i + (i % 2 ? 7 : 0);
+    return `<span class="striker ${ring}" style="--a:${angle.toFixed(1)}deg"><span class="arm" style="--dur:${dur.toFixed(2)}s;--delay:${((i * 0.29) % dur).toFixed(2)}s"><span class="blade">${art(w.type, w.grade, w.level, 48)}</span></span></span>`;
   }).join('');
+}
+
+function renderArena() {
+  const list = miners(s).sort((a, b) => b.level - a.level);
+  const n = list.length;
   return `<section class="arena ${n ? 'busy' : ''}">
     <div class="arena-ring">
-      ${strikers}
+      ${strikersHtml(list)}
       <button type="button" class="tap-vein" data-act="tap" aria-label="광맥 캐기"><img class="art" src="assets/building.webp" width="120" height="120" alt=""><span class="tap-hint">눌러서 캐기 +${fmt(tapGain(s))}</span></button>
     </div>
-    ${list.length > ARENA_MAX ? `<p class="note">그 밖에 ${list.length - ARENA_MAX}자루가 더 캐고 있습니다</p>` : ''}
+    ${n > ARENA_MAX ? `<p class="note">그 밖에 ${n - ARENA_MAX}자루가 더 캐고 있습니다</p>` : ''}
     ${n ? '' : '<p class="note">채집 무기가 없습니다. 강화장에서 무기를 채집으로 보내면 광맥을 둘러싸고 캡니다.</p>'}
   </section>`;
 }
@@ -277,7 +280,7 @@ function renderMine() {
         <div class="hp"><span id="mine-hp"></span></div>
         <dl class="stats">
           <div><dt>체력</dt><dd>${fmt(st.hp)}</dd></div>
-          <div><dt>부술 때</dt><dd>+${fmt(st.reward)}</dd></div>
+          <div><dt>DPS 1당</dt><dd>${st.eff.toFixed(1)}/초</dd></div>
           <div><dt>초당 수입</dt><dd>${fmt(incomePerSec(s))}</dd></div>
         </dl>
         <p class="note">채집 무기 ${miners(s).length}자루가 광맥을 부수고 있습니다. 도끼는 두 배로 부숩니다. 앱을 꺼도 최대 8시간치가 쌓입니다.</p>
@@ -286,18 +289,17 @@ function renderMine() {
     <section class="dps-card">
       <h3 class="sec">DPS 안내</h3>
       <dl class="stats">
-        <div><dt>채집 DPS</dt><dd>${fmt(buildingDps(miners(s), ctxOf(s)))}</dd></div>
-        <div><dt>전투 DPS</dt><dd>${fmt(battleDps(s))}</dd></div>
-        <div><dt>전부 전투 시</dt><dd>${fmt(potentialDps(s))}</dd></div>
+        <div><dt>총 DPS</dt><dd>${fmt(battleDps(s))}</dd></div>
+        <div><dt>초당 미네랄</dt><dd>${fmt(incomePerSec(s))}</dd></div>
+        <div><dt>보스 필요 DPS</dt><dd>${fmt(nextBoss(s).hp / FIGHT_SECONDS)}</dd></div>
       </dl>
-      <p class="note">다음 보스(${nextBoss(s).stage}단계) 체력 ${fmt(nextBoss(s).hp)}은 30초에 DPS ${fmt(nextBoss(s).hp / FIGHT_SECONDS)} 이상이면 깹니다. 채집 무기를 전투로 돌리면 돈은 줄지만 보스를 빨리 잡습니다.</p>
-      ${btn('arrange', '추천 배치 (센 무기 절반 전투)', { cls: 'big gold', disabled: s.weapons.length < 2 })}
+      <p class="note">초당 미네랄 = 총 DPS × 광맥 효율(DPS 1당 ${buildingStats(b.tier).eff.toFixed(1)}). 무기가 세질수록 정직하게 더 법니다. ${nextBoss(s).stage}단계 보스는 체력 ${fmt(nextBoss(s).hp)}이라 30초 안에 잡으려면 DPS ${fmt(nextBoss(s).hp / FIGHT_SECONDS)}이 필요합니다(유형별 조건 별도).</p>
     </section>
     <button type="button" class="enhance-btn mint" data-act="upgrade" ${s.minerals < cost ? 'disabled' : ''}>
       <span class="eb-title">광맥 업그레이드</span>
-      <span class="eb-meta">${fmt(cost)} 미네랄 · 체력 ${fmt(next.hp)} / 보상 ${fmt(next.reward)}</span>
+      <span class="eb-meta">${fmt(cost)} 미네랄 · 효율 ${buildingStats(b.tier).eff.toFixed(1)} → ${next.eff.toFixed(1)}</span>
     </button>
-    <p class="note">광맥이 단단해질수록 부수는 데 오래 걸리지만 한 번에 더 많이 줍니다. 무기가 약하면 업그레이드가 손해일 수 있습니다.</p>
+    <p class="note">업그레이드하면 같은 DPS로 더 많은 미네랄을 캡니다.</p>
     <h3 class="sec">채집 중인 무기</h3>
     <div class="tiles">${miners(s).map(weaponTile).join('') || '<p class="note">강화장에서 무기를 골라 [채집으로 보내기]를 누르세요.</p>'}</div>`;
 }
@@ -324,6 +326,7 @@ function renderBoss() {
   const coins = rebirthCoins(s);
   const fight = ui.fight;
   return `
+    ${fight ? `<section class="arena busy fight"><div class="arena-ring">${strikersHtml(fighters(s).sort((a, b) => b.level - a.level), 2)}<div class="boss-center">${bossArt(boss.types, 140)}</div></div></section>` : ''}
     <section class="boss">
       <div class="boss-art ${fight ? 'hit' : ''}">${bossArt(boss.types, 120)}</div>
       <div>
@@ -334,7 +337,7 @@ function renderBoss() {
       </div>
     </section>
     ${fight ? `<div class="fightbar"><span style="width:${fight.hpPct}%"></span><em>${fight.text}</em></div>` : ''}
-    <h3 class="sec">준비 상태판 <small>전투 무기 ${party.length}자루</small></h3>
+    <h3 class="sec">준비 상태판 <small>출전 ${party.length}자루 (전원)</small></h3>
     <table class="ready"><tbody>
       ${rows.map(([k, v, ok]) => `<tr><th>${k}</th><td>${v}</td><td><span class="pill ${ok ? 'ok' : 'no'}">${ok ? '충분' : '부족'}</span></td></tr>`).join('')}
     </tbody></table>
@@ -343,7 +346,6 @@ function renderBoss() {
       <span class="eb-meta">${killed ? '지금이면 잡을 수 있습니다' : '아직 부족합니다 · 그래도 도전 가능'}</span>
     </button>
     <div class="row">
-      ${btn('arrange', '추천 배치', { disabled: s.weapons.length < 2 })}
       ${btn('dps', 'DPS 측정 (샌드백 30초)', { disabled: !party.length })}
     </div>
     <section class="rebirth">
@@ -423,8 +425,11 @@ function renderModal() {
   if (m.kind === 'trait') {
     const w = s.weapons.find((x) => x.id === m.id);
     if (!w?.pendingTraits) { ui.modal = null; return renderModal(); }
-    body = `<h3>+${w.level}강 특성 고르기</h3><p>${WEAPONS[w.type].name}에 붙일 특성 하나를 고르세요.</p>
-      <div class="choices">${w.pendingTraits.map((t) => btn('trait', TRAITS[t].label, { cls: 'big', data: { key: t } })).join('')}</div>`;
+    const left = s.weapons.filter((x) => x.pendingTraits).length;
+    const rec = recommendTrait(w.type, w.pendingTraits);
+    body = `<div class="trait-head">${art(w.type, w.grade, w.level, 72)}<div><h3>+${w.level}강 특성 고르기</h3><p>${GRADES[w.grade]} ${WEAPONS[w.type].name} · 「${levelName(w)}」${left > 1 ? ` · 대기 ${left}개` : ''}</p></div></div>
+      <div class="choices">${w.pendingTraits.map((t) => btn('trait', `${TRAITS[t].label}${t === rec ? ' · 추천' : ''}`, { cls: `big ${t === rec ? 'gold' : ''}`, data: { key: t } })).join('')}</div>
+      <p class="note">자동 강화 중에는 추천 특성을 알아서 고릅니다.</p>`;
   } else if (m.kind === 'rebirth') {
     const c = rebirthCoins(s);
     body = `<h3>환생할까요?</h3><p>무기 ${s.weapons.length}자루와 미네랄이 사라지고, 환생 코인을 받습니다. 해금·영구 능력·도감은 남습니다.</p>
@@ -576,7 +581,6 @@ const handlers = {
   select: (d) => { ui.selected = Number(d.id); if (ui.tab !== 'forge') ui.tab = 'forge'; },
   enhance: () => doEnhance(),
   buy: (d) => { const r = buy(s, d.type); if (!r.ok) return toast(r.reason); ui.selected = r.weapon.id; toast(`${WEAPONS[d.type].name} 구매 · 채집장으로 보냈습니다`); },
-  'toggle-loc': () => { const w = selectedWeapon(); if (w) assign(s, w.id, w.loc === 'mine' ? 'battle' : 'mine'); },
   combine: () => {
     const w = selectedWeapon();
     const partner = s.weapons.filter((x) => canCombine(w, x)).sort((a, b) => b.level - a.level)[0];
@@ -605,12 +609,13 @@ const handlers = {
     toast(`${r.count}번 조합! 최고 ${GRADES[best.grade]} ${WEAPONS[best.type].name}`);
     setTimeout(() => sparks('big', gradeColor(best.grade)), 50);
   },
-  arrange: () => {
-    const r = arrangeBest(s);
-    toast(r.battle ? `전투 ${r.battle}자루 · 채집 ${s.weapons.length - r.battle}자루로 배치했습니다` : '무기가 한 자루라 채집에 둡니다. 한 자루 더 사세요');
+  'open-trait': () => { const w = s.weapons.find((x) => x.pendingTraits); if (w) ui.modal = { kind: 'trait', id: w.id }; },
+  trait: (d) => {
+    pickTrait(s, ui.modal.id, d.key);
+    toast(`특성 획득: ${TRAITS[d.key].label}`);
+    const next = s.weapons.find((x) => x.pendingTraits);
+    ui.modal = next ? { kind: 'trait', id: next.id } : null;
   },
-  'open-trait': () => { ui.modal = { kind: 'trait', id: ui.selected }; },
-  trait: (d) => { pickTrait(s, ui.modal.id, d.key); ui.modal = null; toast(`특성 획득: ${TRAITS[d.key].label}`); },
   upgrade: () => { const r = upgradeBuilding(s); toast(r.ok ? `광맥 ${s.building.tier + 1}단계!` : r.reason); },
   challenge: () => startFight(),
   dps: () => {

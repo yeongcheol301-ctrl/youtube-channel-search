@@ -71,9 +71,9 @@ test('mining weapons earn minerals over time', () => {
   assert.ok(s.building.hpLeft > 0 && s.building.hpLeft <= s.building.hp);
 });
 
-test('battle weapons do not mine', () => {
+test('every weapon mines, there is no idle battle slot', () => {
   const s = newGame(); buy(s, 'sword'); assign(s, s.weapons[0].id, 'battle'); const m = s.minerals;
-  tick(s, 10); assert.equal(s.minerals, m);
+  tick(s, 10); assert.ok(s.minerals > m);
 });
 
 test('offline negative is zero', () => {

@@ -16,7 +16,6 @@ await page.click('[data-act="buy"][data-type="sword"]');
 await page.evaluate(() => {});
 for (let i = 0; i < 3; i++) { await page.waitForTimeout(1100); }
 for (let i = 0; i < 20; i++) { await page.waitForTimeout(1000); const b = await page.$('#view .enhance-btn:not([disabled])'); if (b) await b.click(); }
-await page.click('[data-act="toggle-loc"]');
 await page.screenshot({ path: out + 'forge.png', fullPage: true });
 await page.click('.tabs [data-tab="mine"]');
 for (let i = 0; i < 8; i++) { await page.click('.tap-vein'); await page.waitForTimeout(60); }

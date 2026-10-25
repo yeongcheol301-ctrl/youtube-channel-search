@@ -186,22 +186,20 @@ export function bossFight(weapons, boss, ctx) {
   return { damage, hits, killed, dps: perSec };
 }
 
-export const BUILDING_TUNING = { hp: 5, hpGrowth: 3, reward: 40, rewardGrowth: 2.6, respawn: 0.5 };
+// 광맥: 채집 DPS × 효율 = 초당 미네랄. 업그레이드하면 체력(연출용)과 효율이 함께 오른다.
+export const BUILDING_TUNING = { hp: 5, hpGrowth: 2.2, eff: 7, effGrowth: 1.35 };
 
 export function buildingStats(tier) {
   const t = BUILDING_TUNING;
-  return { hp: t.hp * Math.pow(t.hpGrowth, tier), reward: t.reward * Math.pow(t.rewardGrowth, tier) };
+  const hp = t.hp * Math.pow(t.hpGrowth, tier);
+  const eff = t.eff * Math.pow(t.effGrowth, tier);
+  return { hp, eff, reward: hp * eff };
 }
 
 export function buildingDps(weapons, ctx) {
   return weapons.reduce((s, w) => s + weaponAttack(w, ctx) * weaponHitsPerSec(w) * critFactor(w) * (w.type === 'axe' ? 2 : 1), 0);
 }
 
-// 건물 하나는 최소 1초에 한 번 부서지고, 다시 생기는 데 0.5초가 걸린다.
 export function mineralsPerSec(weapons, tier, ctx) {
-  const dps = buildingDps(weapons, ctx);
-  if (dps <= 0) return 0;
-  const { hp, reward } = buildingStats(tier);
-  const cycle = Math.max(hp / dps, 1) + BUILDING_TUNING.respawn;
-  return (reward * (1 + (ctx.perm?.rewardPct ?? 0))) / cycle;
+  return buildingDps(weapons, ctx) * buildingStats(tier).eff * (1 + (ctx.perm?.rewardPct ?? 0));
 }

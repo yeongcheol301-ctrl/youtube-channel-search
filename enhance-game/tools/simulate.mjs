@@ -1,6 +1,6 @@
 // 단순 봇으로 플레이해 회차별 진행 속도를 출력한다. 사용: node tools/simulate.mjs [seed]
 import { weaponAttack, bossFight, mineralsPerSec, buildingDps } from '../src/rules.js';
-import { newGame, buy, enhance, pickTrait, assign, combine, canCombine, upgradeBuilding, buildingUpgradeCost, tick, ctxOf, fighters, buyPrice, enhancePrice } from '../src/state.js';
+import { incomePerSec, combineAll, newGame, buy, enhance, pickTrait, assign, combine, canCombine, upgradeBuilding, buildingUpgradeCost, tick, ctxOf, fighters, buyPrice, enhancePrice } from '../src/state.js';
 import { challengeBoss, measureDps, rebirth, rebirthCoins, nextBoss, nextUnlock, unlock, buyPerm, PERMS, permCost, shouldHintRebirth } from '../src/progress.js';
 
 let seed = Number(process.argv[2] ?? 1);
@@ -31,11 +31,9 @@ function arrange() {
 function act() {
   const p = s.weapons.find((w) => w.pendingTraits);
   if (p) return pickTrait(s, p.id, p.pendingTraits[0]);
-  for (const a of s.weapons) for (const b of s.weapons) if (canCombine(a, b)) return combine(s, a.id, b.id);
-  const miners = s.weapons.filter((w) => w.loc === 'mine');
-  const capped = buildingDps(miners, ctxOf(s)) * 1.5 > s.building.hp;
-  if (capped && s.minerals >= buildingUpgradeCost(s)) return upgradeBuilding(s);
-  if (capped && s.minerals < buildingUpgradeCost(s) && s.weapons.length >= 4) return null;
+  if (combineAll(s).count) return true;
+  const cost = buildingUpgradeCost(s);
+  if (s.minerals >= cost && cost < incomePerSec(s) * 120) return upgradeBuilding(s);
   const type = [...s.meta.unlocked].sort((a, b) => buyPrice(s, b) - buyPrice(s, a)).find((t) => s.minerals >= buyPrice(s, t) * 3);
   if (s.weapons.length < 4 || (s.weapons.length < 20 && type && s.weapons.length < 8 + s.meta.rebirths * 2)) {
     const t = type ?? s.meta.unlocked.find((x) => s.minerals >= buyPrice(s, x));
@@ -51,7 +49,6 @@ while (now < MAX_HOURS * 3600) {
   now += 1;
   tick(s, 1);
   act(); act();
-  if (now % 10 === 0) arrange();
   if (now % 60 === 0) {
     measureDps(s, now * 1000);
     const b = nextBoss(s);

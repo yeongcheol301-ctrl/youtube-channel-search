@@ -187,8 +187,9 @@ export function upgradeBuilding(s) {
   return { ok: true };
 }
 
-export const miners = (s) => s.weapons.filter((w) => w.loc === 'mine');
-export const fighters = (s) => s.weapons.filter((w) => w.loc === 'battle');
+// 평소엔 전부 채집하고, 보스에 도전할 때만 전원이 출동한다.
+export const miners = (s) => s.weapons;
+export const fighters = (s) => s.weapons;
 
 export function incomePerSec(s) {
   return mineralsPerSec(miners(s), s.building.tier, ctxOf(s));
@@ -214,7 +215,7 @@ export function tick(s, seconds) {
   const dps = buildingDps(miners(s), ctxOf(s));
   const b = s.building;
   if (dps > 0) {
-    const cycle = Math.max(b.hp / dps, 1);
+    const cycle = Math.max(b.hp / dps, 0.2);
     b.t = (b.t + seconds) % cycle;
     b.hpLeft = Math.max(b.hp * (1 - b.t / cycle), b.hp * 0.02);
   }
