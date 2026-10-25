@@ -141,7 +141,7 @@ export const BOSS_TYPES = {
   regen: { name: '재생', hint: '체력이 계속 회복 → 짧게 몰아치기' },
 };
 const BOSS_ORDER = ['giant', 'armored', 'barrier', 'multihit', 'regen'];
-export const BOSS_TUNING = { hp: 300, hpGrowth: 4, armor: 0.5, armorGrowth: 1.8 };
+export const BOSS_TUNING = { hp: 1500, hpGrowth: 3.6, armor: 0.5, armorGrowth: 1.8 };
 export const FIGHT_SECONDS = 30;
 
 export function bossTypesFor(stage) {
