@@ -1,9 +1,10 @@
 // 게임 규칙: DOM 없이 계산만 한다. 숫자는 기획안 예시값.
 
-export const MAX_LEVEL = 50;
-// 등급마다 강화할 수 있는 끝 단계. 끝에 닿으면 승급해야 더 올라간다. 단계는 승급해도 이어진다.
-export const GRADE_CAPS = [20, 30, 40, 45, 50];
-export const TRAIT_LEVELS = [10, 20, 30, 40];
+// 등급마다 +0부터 다시 강화한다. 끝에 닿으면 승급, 승급하면 다음 등급 +0.
+export const GRADE_CAPS = [10, 10, 10, 10, 15];
+export const MAX_LEVEL = 15;
+// 등급마다 이 단계에 닿으면 특성을 하나 고른다.
+export const TRAIT_LEVELS = [5, 10, 15];
 
 export const TRAITS = {
   atkPct: { label: '공격력 +20%', value: 0.2 },
@@ -16,65 +17,67 @@ export const TRAITS = {
 // traitPool: 같은 항목이 여러 번 있으면 더 자주 뜬다.
 export const WEAPONS = {
   sword: { name: '검', price: 100, atk: 1, unlockCost: 0,
+    pitch: '가장 기본이 되는 무기. 치명타로 한 방을 노린다.',
+    pros: ['값이 싸서 여러 자루 굴리기 좋음', '치명타 특성이 잘 뜸'], cons: ['높은 등급에서 강화 실패 시 깨질 수 있음'], counters: ['giant'],
     traitPool: ['critChance', 'critChance', 'critMult', 'critMult', 'atkPct', 'speedPct', 'armorBreak'] },
   axe: { name: '도끼', price: 300, atk: 3, unlockCost: 30,
+    pitch: '절대 깨지지 않는 안전빵. 광맥을 두 배로 부순다.',
+    pros: ['강화 실패해도 파괴 없음', '광맥 채집량 2배', '기본 방깎으로 철갑 보스에 강함'], cons: ['강화 성공률이 조금 낮음', '공격이 느림'], counters: ['armored'],
     traitPool: ['armorBreak', 'armorBreak', 'armorBreak', 'atkPct', 'atkPct', 'critChance', 'speedPct'] },
   staff: { name: '지팡이', price: 1000, atk: 8, unlockCost: 100,
+    pitch: '방어를 무시하는 마법 공격. 가끔 두 단계를 건너뛴다.',
+    pros: ['마법이라 방어·방벽 무시', '성공 시 15% 확률로 +2강'], cons: ['강화 비용 2배', '공격이 가장 느림'], counters: ['barrier', 'armored'],
     traitPool: ['atkPct', 'atkPct', 'atkPct', 'speedPct', 'critMult', 'armorBreak'] },
   bow: { name: '활', price: 500, atk: 2, unlockCost: 300,
+    pitch: '빠른 연사. 여러 자루가 모일수록 서로 강해진다.',
+    pros: ['공격이 가장 빠름', '보유한 활 1자루마다 모든 활 공격력 +10%'], cons: ['한 자루만으로는 약함'], counters: ['multihit', 'regen'],
     traitPool: ['speedPct', 'speedPct', 'speedPct', 'critChance', 'atkPct', 'armorBreak'] },
 };
 export const WEAPON_ORDER = ['sword', 'axe', 'staff', 'bow'];
 
-// [시작 단계, 끝 단계, 시작 성공률, 끝 성공률]
-const RATE_BANDS = [
-  [0, 5, 0.95, 0.80],
-  [5, 10, 0.75, 0.55],
-  [10, 20, 0.50, 0.30],
-  [20, 30, 0.30, 0.15],
-  [30, 50, 0.15, 0.03],
-];
+// 등급별 +0 성공률과 마지막 단계 성공률. 사이 단계는 직선으로 떨어진다.
+const GRADE_RATES = [[0.95, 0.60], [0.85, 0.45], [0.70, 0.30], [0.55, 0.20], [0.40, 0.10]];
+// 등급별로 이 단계부터 실패 시 파괴 위험이 생긴다(도끼 제외).
+const DESTROY_FROM = [Infinity, 8, 6, 4, 3];
+const DESTROY_P = [0, 0.08, 0.10, 0.12, 0.15];
 
 const lerp = (a, b, t) => a + (b - a) * t;
 
-function baseRate(level) {
-  const band = RATE_BANDS.find(([lo, hi]) => level >= lo && level < hi) ?? RATE_BANDS.at(-1);
-  const [lo, hi, a, b] = band;
-  return lerp(a, b, (level - lo) / (hi - lo));
-}
-
-export function successRate(level, type, bonusPct = 0) {
-  if (level >= MAX_LEVEL) return 0;
+export function successRate(level, type, bonusPct = 0, grade = 0) {
+  const cap = GRADE_CAPS[grade];
+  if (level >= cap) return 0;
+  const [a, b] = GRADE_RATES[grade];
+  const base = lerp(a, b, cap > 1 ? level / (cap - 1) : 0);
   const mult = type === 'axe' ? 0.85 : 1;
-  return Math.min(1, baseRate(level) * mult + bonusPct / 100);
+  return Math.min(1, base * mult + bonusPct / 100);
 }
 
-export function destroyChance(level, type) {
-  if (type === 'axe' || level < 10) return 0;
-  if (level < 20) return 0.05;
-  if (level < 30) return lerp(0.10, 0.20, (level - 20) / 10);
-  return lerp(0.25, 0.40, (level - 30) / 20);
+export function destroyChance(level, type, grade = 0) {
+  if (type === 'axe' || level < DESTROY_FROM[grade]) return 0;
+  return DESTROY_P[grade];
 }
 
-export function enhanceCost(level, type, discount = 0) {
+export function enhanceCost(level, type, discount = 0, grade = 0) {
   const mult = type === 'staff' ? 2 : 1;
-  return Math.round(WEAPONS[type].price * Math.pow(1.25, level) * mult * (1 - discount));
+  return Math.round(WEAPONS[type].price * Math.pow(1.35, level) * Math.pow(6, grade) * mult * (1 - discount));
 }
 
 // weapon.level, weapon.pity를 바꾸고 결과를 돌려준다. rng: () => [0,1)
-export function rollEnhance(weapon, rng, bonusPct = 0, cap = MAX_LEVEL) {
+export function rollEnhance(weapon, rng, bonusPct = 0) {
+  const grade = weapon.grade ?? 0;
+  const cap = GRADE_CAPS[grade];
   if (weapon.level >= cap) return { result: 'max', level: weapon.level };
   const guaranteed = weapon.pity >= 100;
-  if (guaranteed || rng() < successRate(weapon.level, weapon.type, bonusPct)) {
+  if (guaranteed || rng() < successRate(weapon.level, weapon.type, bonusPct, grade)) {
     const jump = weapon.type === 'staff' && rng() < 0.15 ? 2 : 1;
     weapon.level = Math.min(cap, weapon.level + jump);
     weapon.pity = 0;
     return { result: jump === 2 ? 'up2' : 'up', level: weapon.level };
   }
   weapon.pity = Math.min(100, weapon.pity + 10);
-  if (weapon.level < 5) return { result: 'stay', level: weapon.level };
-  if (rng() < destroyChance(weapon.level, weapon.type)) return { result: 'destroy', level: weapon.level };
-  weapon.level -= 1;
+  if (grade === 0 && weapon.level < 5) return { result: 'stay', level: weapon.level };
+  if (rng() < destroyChance(weapon.level, weapon.type, grade)) return { result: 'destroy', level: weapon.level };
+  weapon.level = Math.max(0, weapon.level - 1);
   return { result: 'down', level: weapon.level };
 }
 
@@ -99,7 +102,7 @@ export function formatNumber(n) {
 // ---- 전투·채집 ----
 
 export const ATK_GROWTH = 1.25;
-export const GRADE_MULT = 3;
+export const GRADE_MULT = 12;
 const BASE_SPEED = { sword: 1, axe: 0.8, staff: 0.7, bow: 1.4 };
 const BASE_CRIT = { chance: 0.05, mult: 2 };
 export const GRADES = ['일반', '희귀', '전설', '히어로', '초월'];
@@ -126,7 +129,7 @@ function critFactor(weapon) {
 }
 
 export function weaponArmorBreak(weapon) {
-  const innate = weapon.type === 'axe' ? 3 + Math.floor(weapon.level / 5) : 0;
+  const innate = weapon.type === 'axe' ? 3 + Math.floor(weapon.level / 5) + 4 * weapon.grade : 0;
   return innate + traitSum(weapon, 'armorBreak');
 }
 
@@ -138,7 +141,7 @@ export const BOSS_TYPES = {
   regen: { name: '재생', hint: '체력이 계속 회복 → 짧게 몰아치기' },
 };
 const BOSS_ORDER = ['giant', 'armored', 'barrier', 'multihit', 'regen'];
-export const BOSS_TUNING = { hp: 300, hpGrowth: 3, armor: 0.5, armorGrowth: 1.8 };
+export const BOSS_TUNING = { hp: 300, hpGrowth: 4, armor: 0.5, armorGrowth: 1.8 };
 export const FIGHT_SECONDS = 30;
 
 export function bossTypesFor(stage) {

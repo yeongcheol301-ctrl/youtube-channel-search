@@ -28,11 +28,11 @@ test('locked weapon cannot be bought', () => {
   assert.equal(buy(s, 'axe').ok, false);
 });
 
-test('reaching +10 offers three traits and blocks enhancing until picked', () => {
+test('reaching +5 offers three traits and blocks enhancing until picked', () => {
   const s = newGame(); s.minerals = 1e9; buy(s, 'sword');
-  const w = s.weapons[0]; w.level = 9;
+  const w = s.weapons[0]; w.level = 4;
   assert.equal(enhance(s, w.id, always(0)).ok, true);
-  assert.equal(w.level, 10); assert.equal(w.pendingTraits.length, 3);
+  assert.equal(w.level, 5); assert.equal(w.pendingTraits.length, 3);
   assert.equal(enhance(s, w.id, always(0)).ok, false);
   assert.equal(pickTrait(s, w.id, w.pendingTraits[0]).ok, true);
   assert.equal(w.traits.length, 1); assert.equal(w.pendingTraits, null);
@@ -41,7 +41,7 @@ test('reaching +10 offers three traits and blocks enhancing until picked', () =>
 
 test('destroyed weapon disappears', () => {
   const s = newGame(); s.minerals = 1e12; buy(s, 'sword');
-  const w = s.weapons[0]; w.grade = 2; w.level = 35; w.traits = ['atkPct', 'atkPct', 'atkPct'];
+  const w = s.weapons[0]; w.grade = 2; w.level = 7; w.traits = ['atkPct', 'atkPct', 'atkPct', 'atkPct', 'atkPct'];
   const seq = [0.99, 0.0];
   assert.equal(enhance(s, w.id, () => seq.shift()).result, 'destroy');
   assert.equal(s.weapons.length, 0);
@@ -129,16 +129,16 @@ test('enhancing stops at the grade cap until promotion', async () => {
 test('promotion needs the cap, a same type same grade weapon and minerals', async () => {
   const { promote, promoteCost } = await import('../src/state.js');
   const s = newGame(); s.minerals = 1e12; buy(s, 'sword'); buy(s, 'sword'); buy(s, 'sword');
-  const [a, b, c] = s.weapons; a.level = 20; a.traits = ['atkPct', 'atkPct']; b.level = 7; c.level = 3;
+  const [a, b, c] = s.weapons; a.level = 10; a.traits = ['atkPct', 'atkPct']; b.level = 7; c.level = 3;
   assert.equal(promote(s, b.id).ok, false);
   const m = s.minerals;
   const r = promote(s, a.id);
-  assert.equal(r.ok, true); assert.equal(a.grade, 1); assert.equal(a.level, 20);
+  assert.equal(r.ok, true); assert.equal(a.grade, 1); assert.equal(a.level, 0, 'promotion starts the new grade at +0');
   assert.equal(s.weapons.length, 2); assert.ok(!s.weapons.includes(c), 'lowest level weapon is used up');
   assert.equal(s.minerals, m - promoteCost(0));
-  const lone = newGame(); lone.minerals = 1e12; buy(lone, 'sword'); lone.weapons[0].level = 20;
+  const lone = newGame(); lone.minerals = 1e12; buy(lone, 'sword'); lone.weapons[0].level = 10;
   assert.equal(promote(lone, lone.weapons[0].id).ok, false);
-  const broke = newGame(); broke.minerals = 1e12; buy(broke, 'sword'); buy(broke, 'sword'); broke.weapons[0].level = 20; broke.minerals = 0;
+  const broke = newGame(); broke.minerals = 1e12; buy(broke, 'sword'); buy(broke, 'sword'); broke.weapons[0].level = 10; broke.minerals = 0;
   assert.equal(promote(broke, broke.weapons[0].id).ok, false);
 });
 
@@ -146,9 +146,10 @@ test('promoteAll promotes every eligible weapon', async () => {
   const { promoteAll } = await import('../src/state.js');
   const s = newGame(); s.minerals = 1e12;
   for (let i = 0; i < 4; i++) buy(s, 'sword');
-  s.weapons[0].level = 20; s.weapons[1].level = 20;
+  s.weapons[0].level = 10; s.weapons[1].level = 10;
+  s.weapons[0].traits = ['atkPct', 'atkPct']; s.weapons[1].traits = ['atkPct', 'atkPct'];
   const r = promoteAll(s);
-  assert.equal(r.count, 2, 'both +20 swords promote, each eating a +0 sword');
+  assert.equal(r.count, 2, 'both +10 swords promote, each eating a +0 sword');
   assert.equal(s.weapons.filter((w) => w.grade === 1).length, 2);
   assert.equal(s.weapons.length, 2);
 });
@@ -158,4 +159,12 @@ test('each extra weapon of a type costs 12% more', async () => {
   const s = newGame(); s.minerals = 1e9;
   const p0 = buyPrice(s, 'sword'); buy(s, 'sword');
   assert.equal(buyPrice(s, 'sword'), Math.round(p0 * 1.12));
+});
+
+test('each grade grants traits at +5 and +10, counting earlier grades', async () => {
+  const { traitsExpected } = await import('../src/state.js');
+  assert.equal(traitsExpected({ grade: 0, level: 4 }), 0);
+  assert.equal(traitsExpected({ grade: 0, level: 10 }), 2);
+  assert.equal(traitsExpected({ grade: 2, level: 5 }), 5);
+  assert.equal(traitsExpected({ grade: 4, level: 15 }), 11);
 });

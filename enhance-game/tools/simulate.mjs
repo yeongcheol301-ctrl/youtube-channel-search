@@ -52,7 +52,7 @@ while (now < MAX_HOURS * 3600) {
   if (now % 60 === 0) {
     measureDps(s, now * 1000);
     const b = nextBoss(s);
-    if (fighters(s).length && bossFight(fighters(s), b, ctxOf(s)).killed) { challengeBoss(s); s.bestDpsAt = now * 1000; }
+    if (fighters(s).length && bossFight(fighters(s), b, ctxOf(s)).killed) { challengeBoss(s, now * 1000); if (process.env.TRACE) console.log(`run${s.meta.rebirths + 1} stage${s.maxStage} @${Math.round((now - runStart) / 60)}m tier${s.building.tier} n${s.weapons.length} ${s.weapons.map((w) => w.grade + "+" + w.level).join(" ")}`); }
   }
   if (now % 60 === 0 && shouldHintRebirth(s, now * 1000)) {
     const coins = rebirthCoins(s);

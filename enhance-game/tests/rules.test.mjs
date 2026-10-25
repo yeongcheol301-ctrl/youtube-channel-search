@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { WEAPONS, successRate, enhanceCost, rollEnhance, formatNumber } from '../src/rules.js';
+import { WEAPONS, GRADE_CAPS, successRate, destroyChance, enhanceCost, rollEnhance, formatNumber } from '../src/rules.js';
 
 const always = (v) => () => v;
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-9, `${a} != ${b}`);
@@ -9,64 +9,6 @@ test('weapon table matches spec', () => {
   assert.deepEqual(
     Object.fromEntries(Object.entries(WEAPONS).map(([k, w]) => [k, [w.price, w.atk]])),
     { sword: [100, 1], axe: [300, 3], staff: [1000, 8], bow: [500, 2] });
-});
-
-test('success rate bands interpolate', () => {
-  near(successRate(0, 'sword'), 0.95);
-  near(successRate(5, 'sword'), 0.75);
-  near(successRate(15, 'sword'), 0.40);
-  near(successRate(10, 'axe'), 0.425);
-  near(successRate(49, 'sword'), 0.15 - 0.12 * 19 / 20);
-});
-
-test('success bonus adds percentage points', () => {
-  near(successRate(0, 'sword', 3), 0.98);
-});
-
-test('enhance cost grows 25% per level, staff doubled', () => {
-  assert.equal(enhanceCost(0, 'sword'), 100);
-  assert.equal(enhanceCost(4, 'staff'), 4883);
-  assert.equal(enhanceCost(0, 'sword', 0.5), 50);
-});
-
-test('failure below +5 keeps level', () => {
-  const w = { type: 'sword', level: 3, pity: 0 };
-  const r = rollEnhance(w, always(0.99));
-  assert.equal(r.result, 'stay'); assert.equal(w.level, 3); assert.equal(w.pity, 10);
-});
-
-test('failure at +7 drops one level', () => {
-  const w = { type: 'sword', level: 7, pity: 0 };
-  assert.equal(rollEnhance(w, always(0.99)).result, 'down'); assert.equal(w.level, 6);
-});
-
-test('axe never breaks', () => {
-  const w = { type: 'axe', level: 25, pity: 0 };
-  assert.equal(rollEnhance(w, always(0.0001 + 0.29)).result, 'down');
-  const w2 = { type: 'axe', level: 25, pity: 0 };
-  const seq = [0.99, 0.0];
-  assert.equal(rollEnhance(w2, () => seq.shift()).result, 'down'); assert.equal(w2.level, 24);
-});
-
-test('sword at +25 can break', () => {
-  const w = { type: 'sword', level: 25, pity: 0 };
-  const seq = [0.99, 0.0];
-  assert.equal(rollEnhance(w, () => seq.shift()).result, 'destroy');
-});
-
-test('staff can jump two levels', () => {
-  const w = { type: 'staff', level: 4, pity: 0 };
-  assert.equal(rollEnhance(w, always(0)).result, 'up2'); assert.equal(w.level, 6);
-});
-
-test('full pity guarantees success then resets', () => {
-  const w = { type: 'sword', level: 30, pity: 100 };
-  assert.equal(rollEnhance(w, always(0.99)).result, 'up'); assert.equal(w.level, 31); assert.equal(w.pity, 0);
-});
-
-test('max level cannot enhance', () => {
-  const w = { type: 'sword', level: 50, pity: 0 };
-  assert.equal(rollEnhance(w, always(0)).result, 'max'); assert.equal(w.level, 50);
 });
 
 test('formatNumber uses commas below one billion like StarCraft', () => {
@@ -87,7 +29,76 @@ test('formatNumber huge', () => {
   assert.ok(!/NaN|Infinity/.test(formatNumber(Infinity)));
 });
 
-test('a two-step jump never passes the grade cap', () => {
-  const wpn = { type: 'staff', level: 19, pity: 0 };
-  assert.equal(rollEnhance(wpn, () => 0, 0, 20).level, 20);
+
+test('each grade runs +0 to +10 and starts harder the higher it is', () => {
+  near(successRate(0, 'sword', 0, 0), 0.95);
+  near(successRate(10, 'sword', 0, 0), 0);
+  near(successRate(0, 'sword', 0, 1), 0.85);
+  near(successRate(0, 'sword', 0, 2), 0.70);
+  near(successRate(0, 'sword', 0, 3), 0.55);
+  near(successRate(0, 'sword', 0, 4), 0.40);
+  near(successRate(9, 'sword', 0, 0), 0.95 - 0.35 * 9 / 9);
+  near(successRate(0, 'axe', 0, 0), 0.95 * 0.85);
+  near(successRate(0, 'sword', 3, 0), 0.98);
+});
+
+test('transcendent grade goes up to +15', () => {
+  assert.equal(GRADE_CAPS[4], 15);
+  assert.ok(successRate(14, 'sword', 0, 4) > 0);
+});
+
+test('enhance cost grows per level and per grade, staff doubled', () => {
+  assert.equal(enhanceCost(0, 'sword'), 100);
+  assert.equal(enhanceCost(2, 'sword'), Math.round(100 * 1.35 ** 2));
+  assert.equal(enhanceCost(0, 'sword', 0, 1), 600);
+  assert.equal(enhanceCost(0, 'staff'), 2000);
+  assert.equal(enhanceCost(0, 'sword', 0.5), 50);
+});
+
+test('common grade below +5 keeps its level on failure', () => {
+  const w = { type: 'sword', grade: 0, level: 3, pity: 0 };
+  assert.equal(rollEnhance(w, always(0.99)).result, 'stay'); assert.equal(w.level, 3); assert.equal(w.pity, 10);
+});
+
+test('failure drops one level and never below zero', () => {
+  const w = { type: 'sword', grade: 0, level: 7, pity: 0 };
+  assert.equal(rollEnhance(w, always(0.99)).result, 'down'); assert.equal(w.level, 6);
+  const r = { type: 'sword', grade: 1, level: 0, pity: 0 };
+  rollEnhance(r, always(0.99)); assert.equal(r.level, 0);
+});
+
+test('destruction risk starts earlier on higher grades and never hits axes', () => {
+  assert.equal(destroyChance(9, 'sword', 0), 0);
+  assert.equal(destroyChance(7, 'sword', 1), 0);
+  assert.ok(destroyChance(8, 'sword', 1) > 0);
+  assert.ok(destroyChance(6, 'sword', 2) > 0);
+  assert.ok(destroyChance(4, 'sword', 3) > 0);
+  assert.equal(destroyChance(9, 'axe', 4), 0);
+  const w = { type: 'sword', grade: 2, level: 7, pity: 0 };
+  const seq = [0.99, 0.0];
+  assert.equal(rollEnhance(w, () => seq.shift()).result, 'destroy');
+});
+
+test('staff can jump two levels but never past the grade cap', () => {
+  const w = { type: 'staff', grade: 0, level: 4, pity: 0 };
+  assert.equal(rollEnhance(w, always(0)).result, 'up2'); assert.equal(w.level, 6);
+  const c = { type: 'staff', grade: 0, level: 9, pity: 0 };
+  rollEnhance(c, always(0)); assert.equal(c.level, 10);
+});
+
+test('full pity guarantees success then resets', () => {
+  const w = { type: 'sword', grade: 3, level: 8, pity: 100 };
+  assert.equal(rollEnhance(w, always(0.99)).result, 'up'); assert.equal(w.level, 9); assert.equal(w.pity, 0);
+});
+
+test('at the grade cap enhancing returns max', () => {
+  const w = { type: 'sword', grade: 0, level: 10, pity: 0 };
+  assert.equal(rollEnhance(w, always(0)).result, 'max'); assert.equal(w.level, 10);
+});
+
+test('every weapon has a buyer-facing description', () => {
+  for (const k of Object.keys(WEAPONS)) {
+    const d = WEAPONS[k];
+    assert.ok(d.pitch && d.pros.length && d.cons.length && d.counters.length, k);
+  }
 });

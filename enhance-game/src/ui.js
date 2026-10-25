@@ -1,6 +1,6 @@
 // 화면: 상태를 읽어 그리고, 버튼은 data-act로 처리한다.
 import {
-  WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS, GRADE_CAPS,
+  WEAPONS, WEAPON_ORDER, GRADES, TRAITS, BOSS_TYPES, MAX_LEVEL, FIGHT_SECONDS, GRADE_CAPS, TRAIT_LEVELS, GRADE_MULT,
   successRate, destroyChance, formatNumber, weaponAttack, weaponHitsPerSec, partyArmorBreak, bossFight, buildingStats, buildingDps,
 } from './rules.js';
 import {
@@ -20,7 +20,7 @@ const store = (() => {
 })();
 
 let s = load(store);
-const ui = { speed: 1, tab: 'forge', selected: null, modal: null, auto: false, autoTarget: 10, sellMax: 5, toast: null, fight: null, banner: null, flash: null };
+const ui = { speed: 1, tab: 'forge', selected: null, modal: null, auto: false, autoTarget: 15, sellMax: 5, toast: null, fight: null, banner: null, flash: null };
 const $ = (sel) => document.querySelector(sel);
 const fmt = formatNumber;
 const pct = (x) => `${(x * 100).toFixed(x < 0.1 ? 1 : 0)}%`;
@@ -31,10 +31,12 @@ const LEVEL_NAMES = {
   staff: ['마른 나뭇가지', '견습 지팡이', '수정 지팡이', '현자의 지팡이', '별빛 홀', '룬의 왕홀', '차원을 여는 자'],
   bow: ['사냥꾼 단궁', '장궁', '강철 장궁', '명사수의 활', '바람의 활', '폭풍의 활', '하늘을 꿰뚫는 자'],
 };
-const BAND_STARTS = [0, 5, 10, 15, 20, 30, 40];
-const bandOf = (level) => BAND_STARTS.filter((b) => level >= b).length - 1;
-const levelName = (w) => LEVEL_NAMES[w.type][bandOf(w.level)];
-const auraOf = (level) => (level >= 30 ? 'gold' : level >= 20 ? 'violet' : level >= 10 ? 'blue' : 'none');
+// 그림·이름 7단계: 일반 +0, 일반 +5, 희귀, 전설, 히어로, 초월, 초월 +10.
+const BAND_LABELS = ['일반 +0', '일반 +5', '희귀', '전설', '히어로', '초월', '초월 +10'];
+const bandOf = (w) => (w.grade === 0 ? (w.level >= 5 ? 1 : 0) : w.grade >= 4 ? (w.level >= 10 ? 6 : 5) : w.grade + 1);
+const levelName = (w) => LEVEL_NAMES[w.type][bandOf(w)];
+const auraOf = (w) => (w.grade >= 3 ? 'gold' : w.grade === 2 ? 'violet' : w.grade === 1 || w.level >= 5 ? 'blue' : 'none');
+const gradeLv = (w) => `${GRADES[w.grade]} +${w.level}`;
 const gradeColor = (g) => GRADE_COLORS[g][1];
 
 // ---- 소리 ----
@@ -119,16 +121,16 @@ const sprite = (name, grade = 0, size = 48) => `<canvas class="spr" width="${siz
 // AI 그림: 단계 구간(0~6)별 무기 그림과 보스 그림. 없는 구간은 가장 가까운 그림, 그것도 없으면 직접 그린 그림.
 const ART = Object.fromEntries(['sword', 'axe', 'staff', 'bow'].map((t) => [t, Object.fromEntries([0, 1, 2, 3, 4, 5, 6].map((b) => [b, `assets/${t}-${b}.webp`]))]));
 const BOSS_ART = Object.fromEntries(['armored', 'giant', 'barrier', 'multihit', 'regen'].map((b) => [b, `assets/boss-${b}.webp`]));
-function weaponArtUrl(type, level) {
+function weaponArtUrl(type, grade, level) {
   const set = ART[type] ?? {};
   const bands = Object.keys(set).map(Number);
   if (!bands.length) return null;
-  const b = bandOf(level);
+  const b = bandOf({ grade, level });
   const best = bands.reduce((a, x) => (Math.abs(x - b) < Math.abs(a - b) ? x : a), bands[0]);
   return set[best];
 }
 const art = (type, grade, level, size) => {
-  const url = weaponArtUrl(type, level);
+  const url = weaponArtUrl(type, grade, level);
   return url ? `<img class="art" src="${url}" width="${size}" height="${size}" alt="" style="--glow:${gradeColor(grade)}">` : sprite(type, grade, size);
 };
 const bossArt = (types, size) => {
@@ -177,9 +179,9 @@ function renderHeader() {
 // ---- 강화장 ----
 function weaponTile(w) {
   const on = w.id === ui.selected;
-  return `<button type="button" class="tile aura-${auraOf(w.level)} ${on ? 'on' : ''}" data-act="select" data-id="${w.id}" style="--grade:${gradeColor(w.grade)}" aria-label="${GRADES[w.grade]} ${WEAPONS[w.type].name} +${w.level}">
+  return `<button type="button" class="tile aura-${auraOf(w)} ${on ? 'on' : ''}" data-act="select" data-id="${w.id}" style="--grade:${gradeColor(w.grade)}" aria-label="${GRADES[w.grade]} ${WEAPONS[w.type].name} +${w.level}">
     ${art(w.type, w.grade, w.level, 40)}
-    <span class="tile-lv">+${w.level}</span>
+    <span class="tile-g">${GRADES[w.grade]}</span><span class="tile-lv">+${w.level}</span>
     ${w.pendingTraits ? '<span class="tile-dot" title="특성 선택 대기"></span>' : ''}
   </button>`;
 }
@@ -189,7 +191,7 @@ function promoteButton(w) {
   const cost = promoteCost(w.grade);
   const why = !mat ? `재료로 ${GRADES[w.grade]} ${WEAPONS[w.type].name} 한 자루가 더 필요` : s.minerals < cost ? '미네랄 부족' : `재료: +${mat.level} ${WEAPONS[mat.type].name} 소모`;
   return `<button type="button" class="enhance-btn promote" data-act="promote" ${canPromote(s, w) ? '' : 'disabled'}>
-      <span class="eb-title">승급 → ${GRADES[w.grade + 1]}</span>
+      <span class="eb-title">승급 → ${GRADES[w.grade + 1]} +0</span>
       <span class="eb-meta">${fmt(cost)} 미네랄 · ${why}</span>
     </button>`;
 }
@@ -199,31 +201,34 @@ function renderForge() {
   const bonus = permLevel(s, 'success');
   let main = `<section class="anvil empty"><p>무기가 없습니다. 아래에서 검을 사세요.</p></section>`;
   if (w) {
-    const rate = w.pity >= 100 ? 1 : successRate(w.level, w.type, bonus);
+    const rate = w.pity >= 100 ? 1 : successRate(w.level, w.type, bonus, w.grade);
     const cost = enhancePrice(s, w);
     const promotable = promoteAll(structuredClone(s)).count;
     const cap = GRADE_CAPS[w.grade];
     const top = w.grade >= GRADES.length - 1;
-    const breakP = w.level >= 5 ? destroyChance(w.level, w.type) : 0;
-    const failText = w.level < 5 ? '실패해도 유지' : breakP > 0 ? `실패 시 ${pct(breakP)} 파괴` : '실패 시 한 단계 하락';
+    const safe = w.grade === 0 && w.level < 5;
+    const breakP = safe ? 0 : destroyChance(w.level, w.type, w.grade);
+    const failText = safe ? '실패해도 유지' : breakP > 0 ? `실패 시 ${pct(breakP)} 파괴, 아니면 -1` : '실패 시 한 단계 하락';
+    const nextTrait = TRAIT_LEVELS.find((l) => l <= cap && l > w.level);
     main = `
-    <section class="anvil aura-${auraOf(w.level)} ${ui.flash ?? ''}" style="--grade:${gradeColor(w.grade)}">
+    <section class="anvil aura-${auraOf(w)} ${ui.flash ?? ''}" style="--grade:${gradeColor(w.grade)}">
       <div class="anvil-art">${art(w.type, w.grade, w.level, 132)}</div>
       <div class="anvil-info">
         <p class="grade-tag">${GRADES[w.grade]} · ${WEAPONS[w.type].name}</p>
         <h2><span class="lv">+${w.level}</span> ${levelName(w)}</h2>
-        <p class="cap-line">${GRADES[w.grade]} 한계 +${cap}${top ? ' (최종 등급)' : ` · 도달하면 ${GRADES[w.grade + 1]}로 승급`}</p>
+        <div class="track" style="--cap:${cap}" aria-label="${GRADES[w.grade]} +${w.level} / +${cap}">${Array.from({ length: cap }, (_, i) => `<i class="${i < w.level ? 'f' : ''} ${TRAIT_LEVELS.includes(i + 1) ? 't' : ''} ${i === w.level - 1 ? 'n' : ''}"></i>`).join('')}</div>
+        <p class="cap-line">${top ? `최종 등급 · +${cap}까지` : `+${cap} 달성 → ${GRADES[w.grade + 1]} +0으로 승급`}${nextTrait ? ` · +${nextTrait}에서 특성` : ''}</p>
         <dl class="stats">
           <div><dt>공격력</dt><dd>${fmt(weaponAttack(w, ctxOf(s)))}</dd></div>
-          <div><dt>성공률</dt><dd>${pct(rate)}</dd></div>
+          <div><dt>성공률</dt><dd>${atCap(w) ? '한계' : pct(rate)}</dd></div>
           <div><dt>판매가</dt><dd>${fmt(sellValue(w))}</dd></div>
         </dl>
-        <p class="fail-note">${failText}${w.type === 'axe' ? ' · 도끼는 깨지지 않음' : ''}${w.type === 'staff' ? ' · 성공 시 15%로 2단계' : ''}</p>
+        <p class="fail-note">${atCap(w) ? (top ? '최고 단계에 도달했습니다' : '한계 도달 · 아래 버튼으로 승급') : failText}${w.type === 'axe' ? ' · 도끼는 깨지지 않음' : ''}${w.type === 'staff' ? ' · 성공 시 15%로 2단계' : ''}</p>
         <div class="pity" aria-label="천장 ${w.pity}%"><span style="width:${w.pity}%"></span><em>천장 ${w.pity}%</em></div>
         ${w.traits.length ? `<p class="traits">${w.traits.map((t) => `<span>${TRAITS[t].label}</span>`).join('')}</p>` : ''}
       </div>
     </section>
-    ${w.pendingTraits ? btn('open-trait', '특성 고르기 (+' + w.level + '강 보상)', { cls: 'big gold' }) : atCap(w) && !top ? promoteButton(w) : `
+    ${w.pendingTraits ? btn('open-trait', '특성 고르기 (' + gradeLv(w) + ' 보상)', { cls: 'big gold' }) : atCap(w) && !top ? promoteButton(w) : `
     <button type="button" class="enhance-btn" data-act="enhance" ${s.minerals < cost || atCap(w) ? 'disabled' : ''}>
       <span class="eb-title">${atCap(w) ? '최고 단계' : '강화'}</span>
       <span class="eb-meta">${fmt(cost)} 미네랄 · 성공 ${pct(rate)}</span>
@@ -236,18 +241,21 @@ function renderForge() {
   const shop = WEAPON_ORDER.map((t) => {
     const open = s.meta.unlocked.includes(t);
     const price = buyPrice(s, t);
-    return `<button type="button" class="buy" data-act="buy" data-type="${t}" ${!open || s.minerals < price ? 'disabled' : ''}>
-      ${art(t, 0, 0, 32)}<span>${WEAPONS[t].name}</span><small>${open ? fmt(price) : '잠김'}</small></button>`;
+    return `<div class="buy-card ${open ? '' : 'locked'}">
+      <button type="button" class="buy" data-act="${open ? 'buy' : 'info'}" data-type="${t}" ${open && s.minerals < price ? 'disabled' : ''}>
+        ${art(t, 0, 0, 32)}<span>${WEAPONS[t].name}</span><small>${open ? fmt(price) : `🔒 코인 ${WEAPONS[t].unlockCost}`}</small></button>
+      <button type="button" class="info-btn" data-act="info" data-type="${t}" aria-label="${WEAPONS[t].name} 설명 보기">i</button>
+    </div>`;
   }).join('');
   const autoBox = s.meta.rebirths >= AUTO_REBIRTHS ? `
     <div class="auto">
       <label class="switch"><input id="auto-on" type="checkbox" data-act="auto" ${ui.auto ? 'checked' : ''}> 자동 강화</label>
-      <label>목표 <select id="auto-target" data-act="auto-target">${[5, 10, 15, 20, 25, 30].map((n) => `<option value="${n}" ${n === ui.autoTarget ? 'selected' : ''}>+${n}</option>`).join('')}</select></label>
+      <label>목표 <select id="auto-target" data-act="auto-target">${[[5, '등급마다 +5'], [8, '등급마다 +8'], [15, '한계까지 (자동 승급)']].map(([n, l]) => `<option value="${n}" ${n === ui.autoTarget ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
       ${s.meta.rebirths >= BULK_SELL_REBIRTHS ? `<label>일괄 판매 <select id="sell-max" data-act="sell-max">${[3, 5, 8, 10].map((n) => `<option value="${n}" ${n === ui.sellMax ? 'selected' : ''}>+${n} 이하</option>`).join('')}</select></label>${btn('bulk-sell', '팔기')}` : '<small>일괄 판매는 환생 5회차부터</small>'}
-      <small>목표 단계까지 가장 싼 무기부터 자동 강화하고, 다 차면 새 무기를 삽니다. +10 미만은 깨지지 않습니다.</small>
+      <small>가장 싼 무기부터 목표까지 강화하고, 한계에 닿으면 재료가 있을 때 승급, 다 차면 새 무기를 삽니다. 특성은 추천으로 자동 선택.</small>
     </div>` : '';
   return `${main}
-    <h3 class="sec">무기 구매</h3><div class="shop">${shop}</div>
+    <h3 class="sec">무기 구매 <small>i를 누르면 무기 설명</small></h3><div class="shop">${shop}</div>
     <h3 class="sec">보유 무기 <small>${s.weapons.length}자루 · 평소엔 모두 채집, 보스전엔 전원 출동</small></h3>
     <div class="tiles">${s.weapons.map(weaponTile).join('') || '<p class="note">아직 무기가 없습니다.</p>'}</div>
     ${autoBox}`;
@@ -376,13 +384,12 @@ function renderBook() {
   const cards = WEAPON_ORDER.map((t) => {
     const open = s.meta.unlocked.includes(t);
     const names = LEVEL_NAMES[t].map((n, i) => {
-      const lv = BAND_STARTS[i];
-      const seen = [...found].some((k) => { const [tt, , l] = k.split(':'); return tt === t && Number(l) >= lv; });
-      return `<li class="${seen ? 'seen' : ''}"><span>+${lv}</span>${seen ? n : '???'}</li>`;
+      const seen = [...found].some((k) => { const [tt, g, l] = k.split(':'); return tt === t && bandOf({ grade: Number(g), level: Number(l) }) >= i; });
+      return `<li class="${seen ? 'seen' : ''}"><span>${BAND_LABELS[i]}</span>${seen ? n : '???'}</li>`;
     }).join('');
     const grades = GRADES.map((g, i) => `<span class="gchip ${[...found].some((k) => k.startsWith(`${t}:${i}:`)) ? 'seen' : ''}" style="--grade:${gradeColor(i)}">${g}</span>`).join('');
     return `<article class="book-card ${open ? '' : 'locked'}">
-      <header>${sprite(t, 0, 40)}<div><h4>${WEAPONS[t].name}</h4><small>${open ? '해금됨' : `잠김 · 환생 코인 ${WEAPONS[t].unlockCost}`}</small></div></header>
+      <header>${art(t, 0, 0, 40)}<div><h4>${WEAPONS[t].name}</h4><small>${open ? '해금됨' : `잠김 · 환생 코인 ${WEAPONS[t].unlockCost}`}</small></div>${btn('info', '설명', { data: { type: t } })}</header>
       <div class="gchips">${grades}</div>
       <ol class="names">${names}</ol>
     </article>`;
@@ -391,9 +398,10 @@ function renderBook() {
     <div class="book">${cards}</div>
     <h3 class="sec">승급표</h3>
     <table class="ready"><tbody>
-      ${GRADES.map((g, i) => `<tr><th style="color:${gradeColor(i)}">${g}</th><td>+${i ? GRADE_CAPS[i - 1] : 0} ~ +${GRADE_CAPS[i]}</td><td>${i < GRADES.length - 1 ? `승급 ${fmt(promoteCost(i))} + 같은 무기 1자루` : '최종 등급'}</td></tr>`).join('')}
+      <tr><th>등급</th><th>단계</th><th>성공률</th><th>승급</th></tr>
+      ${GRADES.map((g, i) => `<tr><th style="color:${gradeColor(i)}">${g}</th><td>+0~+${GRADE_CAPS[i]}</td><td>${pct(successRate(0, 'sword', 0, i))}→${pct(successRate(GRADE_CAPS[i] - 1, 'sword', 0, i))}</td><td>${i < GRADES.length - 1 ? `${fmt(promoteCost(i))} + 같은 등급 1자루` : '최종'}</td></tr>`).join('')}
     </tbody></table>
-    <p class="note">승급해도 강화 단계는 이어집니다. 등급이 오를 때마다 공격력이 2.5배가 됩니다.</p>`;
+    <p class="note">한계(+${GRADE_CAPS[0]})에 닿으면 같은 종류·같은 등급 무기 한 자루를 재료로 승급하고, 새 등급 +0부터 다시 강화합니다. 등급이 오르면 공격력이 ${GRADE_MULT}배라 희귀 +0이 일반 +10보다 셉니다. 등급마다 +5·+10에서 특성을 하나씩 얻습니다(초월은 +15에서 하나 더). 높은 등급일수록 성공률이 낮고 일찍부터 깨질 수 있습니다.</p>`;
 }
 
 // ---- 상점 ----
@@ -414,7 +422,7 @@ function renderShop() {
   }).join('');
   return `
     <h3 class="sec">환생 코인 상점 <small>보유 ${fmt(s.meta.coins)}</small></h3>
-    ${u ? `<div class="unlock">${sprite(u, 0, 40)}<div><b>${WEAPONS[u].name} 해금</b><small>${{ axe: '실패해도 안 깨짐 · 건물 2배', staff: '마법 · 가끔 2단계 점프', bow: '여러 자루일수록 강함 · 공속' }[u]}</small></div>${btn('unlock', `${WEAPONS[u].unlockCost} 코인`, { disabled: s.meta.coins < WEAPONS[u].unlockCost, data: { type: u } })}</div>` : '<p class="note">시제품의 무기 4종을 모두 해금했습니다.</p>'}
+    ${u ? `<div class="unlock" data-act="info" data-type="${u}">${art(u, 0, 0, 44)}<div><b>${WEAPONS[u].name} 해금</b><small>${WEAPONS[u].pitch}</small><small class="more">눌러서 자세히 →</small></div>${btn('unlock', `${WEAPONS[u].unlockCost} 코인`, { disabled: s.meta.coins < WEAPONS[u].unlockCost, data: { type: u } })}</div>` : '<p class="note">시제품의 무기 4종을 모두 해금했습니다.</p>'}
     <table class="ready"><tbody>${perms}</tbody></table>
     <h3 class="sec">무료 보상</h3>
     ${btn('ad-minerals', `광고 보고 미네랄 받기 (+${fmt(Math.max(200, incomePerSec(s) * 300))})`, { cls: 'big mint' })}
@@ -424,6 +432,35 @@ function renderShop() {
       <img src="${c.art}" alt="" width="72" height="72">
       <strong>${c.name}</strong><small>${c.line}</small><span class="pack-price">${c.price}</span></button>`).join('')}</div>
     ${btn('open-odds', '강화 확률표 보기')}`;
+}
+
+// ---- 무기 설명 ----
+function weaponInfo(t, fresh) {
+  const d = WEAPONS[t];
+  const open = s.meta.unlocked.includes(t);
+  const probe = { type: t, grade: 0, level: 0, traits: [] };
+  const speed = weaponHitsPerSec(probe);
+  const evo = [0, 3, 6].map((b) => `<figure>${art(t, [0, 0, 1, 2, 3, 4, 4][b], [0, 5, 0, 0, 0, 0, 10][b], 64)}<figcaption>${BAND_LABELS[b]}</figcaption></figure>`).join('<span class="arrow">›</span>');
+  const u = nextUnlock(s);
+  const coins = d.unlockCost;
+  const action = open ? btn('buy', `구매 · ${fmt(buyPrice(s, t))} 미네랄`, { cls: 'big gold', disabled: s.minerals < buyPrice(s, t), data: { type: t } })
+    : u === t ? btn('unlock', `환생 코인 ${coins}개로 해금 (보유 ${fmt(s.meta.coins)})`, { cls: 'big gold', disabled: s.meta.coins < coins, data: { type: t } })
+      : `<p class="note">앞 무기(${WEAPONS[u].name})를 먼저 해금해야 합니다 · 환생 코인 ${coins}개</p>`;
+  return `
+    ${fresh ? '<p class="fresh">해금 완료!</p>' : ''}
+    <div class="info-hero">${art(t, 0, 0, 112)}<div><p class="grade-tag">${open ? '해금됨' : '잠김'} · ${d.name}</p><h3>${LEVEL_NAMES[t][0]}</h3><p class="pitch">${d.pitch}</p></div></div>
+    <dl class="stats four">
+      <div><dt>구매가</dt><dd>${fmt(d.price)}</dd></div>
+      <div><dt>기본 공격력</dt><dd>${d.atk}</dd></div>
+      <div><dt>초당 타격</dt><dd>${speed.toFixed(1)}</dd></div>
+      <div><dt>강화 비용</dt><dd>${t === 'staff' ? '×2' : '보통'}</dd></div>
+    </dl>
+    <ul class="pc">${d.pros.map((x) => `<li class="pro">${x}</li>`).join('')}${d.cons.map((x) => `<li class="con">${x}</li>`).join('')}</ul>
+    <p class="counters">강한 보스 ${d.counters.map((c) => `<span class="pill ok">${BOSS_TYPES[c].name}</span>`).join(' ')}</p>
+    <div class="evo">${evo}</div>
+    <p class="note">잘 뜨는 특성: ${[...new Set(d.traitPool)].sort((a, b) => d.traitPool.filter((x) => x === b).length - d.traitPool.filter((x) => x === a).length).slice(0, 2).map((k) => TRAITS[k].label).join(', ')}</p>
+    ${action}
+    ${btn('close', '닫기')}`;
 }
 
 // ---- 팝업 ----
@@ -438,7 +475,7 @@ function renderModal() {
     if (!w?.pendingTraits) { ui.modal = null; return renderModal(); }
     const left = s.weapons.filter((x) => x.pendingTraits).length;
     const rec = recommendTrait(w.type, w.pendingTraits);
-    body = `<div class="trait-head">${art(w.type, w.grade, w.level, 72)}<div><h3>+${w.level}강 특성 고르기</h3><p>${GRADES[w.grade]} ${WEAPONS[w.type].name} · 「${levelName(w)}」${left > 1 ? ` · 대기 ${left}개` : ''}</p></div></div>
+    body = `<div class="trait-head">${art(w.type, w.grade, w.level, 72)}<div><h3>${gradeLv(w)} 특성 고르기</h3><p>${GRADES[w.grade]} ${WEAPONS[w.type].name} · 「${levelName(w)}」${left > 1 ? ` · 대기 ${left}개` : ''}</p></div></div>
       <div class="choices">${w.pendingTraits.map((t) => btn('trait', `${TRAITS[t].label}${t === rec ? ' · 추천' : ''}`, { cls: `big ${t === rec ? 'gold' : ''}`, data: { key: t } })).join('')}</div>
       <p class="note">자동 강화 중에는 추천 특성을 알아서 고릅니다.</p>`;
   } else if (m.kind === 'rebirth') {
@@ -448,16 +485,20 @@ function renderModal() {
   } else if (m.kind === 'offline') {
     body = `<h3>자는 동안 캤습니다</h3><p class="big-num">+${fmt(m.gain)} 미네랄</p>
       <div class="choices">${btn('offline-ad', `광고 보고 2배 받기`, { cls: 'big gold' })}${btn('close', '받기', { cls: 'big' })}</div>`;
+  } else if (m.kind === 'info') {
+    body = weaponInfo(m.type, m.fresh);
   } else if (m.kind === 'odds') {
     const t = m.type ?? 'sword';
-    const lvls = [0, 4, 5, 9, 10, 15, 19, 20, 25, 29, 30, 40, 49];
-    body = `<h3>강화 확률표</h3><div class="seg">${WEAPON_ORDER.map((x) => btn('odds-type', WEAPONS[x].name, { cls: x === t ? 'on' : '', data: { type: x } })).join('')}</div>
+    const g = m.grade ?? 0;
+    const lvls = Array.from({ length: GRADE_CAPS[g] }, (_, i) => i);
+    body = `<h3>강화 확률표</h3><div class="seg">${WEAPON_ORDER.map((x) => btn('odds', WEAPONS[x].name, { cls: x === t ? 'on' : '', data: { type: x, grade: g } })).join('')}</div>
+      <div class="seg g5">${GRADES.map((x, i) => btn('odds', x, { cls: i === g ? 'on' : '', data: { type: t, grade: i } })).join('')}</div>
       <div class="scroll"><table class="ready odds"><thead><tr><th>단계</th><th>성공</th><th>실패 시</th></tr></thead><tbody>
-      ${lvls.map((l) => `<tr><th>+${l} → +${l + 1}</th><td>${pct(successRate(l, t))}</td><td>${l < 5 ? '유지' : destroyChance(l, t) > 0 ? `파괴 ${pct(destroyChance(l, t))}, 아니면 -1` : '-1'}</td></tr>`).join('')}
+      ${lvls.map((l) => `<tr><th>+${l} → +${l + 1}</th><td>${pct(successRate(l, t, 0, g))}</td><td>${g === 0 && l < 5 ? '유지' : destroyChance(l, t, g) > 0 ? `파괴 ${pct(destroyChance(l, t, g))}, 아니면 -1` : '-1'}</td></tr>`).join('')}
       </tbody></table></div><p class="note">실패할 때마다 천장 +10%, 100%가 되면 다음 강화는 확정 성공. 영구 능력 '강화 성공률'은 위 확률에 더해집니다.</p>
       ${btn('close', '닫기', { cls: 'big' })}`;
   }
-  el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">${body}</div>`;
+  el.innerHTML = `<div class="sheet ${m.kind}" role="dialog" aria-modal="true"><i class="grab" aria-hidden="true"></i>${body}</div>`;
   drawSprites(el);
 }
 
@@ -498,7 +539,12 @@ function render() {
   lastView = html;
   const view = $('#view');
   view.innerHTML = html;
-  if (render.tab !== ui.tab) { view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); render.tab = ui.tab; }
+  if (render.tab !== ui.tab) {
+    const order = Object.keys(VIEWS);
+    view.dataset.dir = order.indexOf(ui.tab) >= order.indexOf(render.tab ?? 'forge') ? 'r' : 'l';
+    view.classList.remove('enter'); void view.offsetWidth; view.classList.add('enter'); render.tab = ui.tab;
+    $('.tabs').style.setProperty('--i', order.indexOf(ui.tab));
+  }
   updateLive();
   const al = alerts(s);
   document.querySelectorAll('.tabs button').forEach((b) => {
@@ -522,15 +568,19 @@ function floatText(text, cls, anchor) {
   document.body.appendChild(el);
   setTimeout(() => el.remove(), 1000);
 }
-const gainText = (n) => floatText(`+${fmt(n)}`, 'gain', document.getElementById('min-num'));
+function bump() {
+  const el = document.getElementById('min-num');
+  el?.classList.remove('bump'); void el?.offsetWidth; el?.classList.add('bump');
+}
+const gainText = (n) => { floatText(`+${fmt(n)}`, 'gain', document.getElementById('min-num')); bump(); };
 function buzz(ms) { try { navigator.vibrate?.(ms); } catch { /* 진동이 없는 기기 */ } }
 
 function showEvolution(w, label = '진화') {
-  const url = weaponArtUrl(w.type, w.level);
+  const url = weaponArtUrl(w.type, w.grade, w.level);
   ui.banner = `<div class="banner-inner evolve" style="--grade:${gradeColor(w.grade)}">
     <small>${label} · ${GRADES[w.grade]} ${WEAPONS[w.type].name}</small>
     ${url ? `<img src="${url}" alt="" width="180" height="180">` : ''}
-    <strong>+${w.level}</strong><span>「${levelName(w)}」</span></div>`;
+    <strong>+${w.level}</strong><span>「${levelName(w)}」</span>${label === '승급' ? '<em>+0부터 다시 · 공격력 대폭 상승</em>' : ''}</div>`;
   clearTimeout(showEvolution.t);
   showEvolution.t = setTimeout(() => { ui.banner = null; renderBanner(); }, 2400);
 }
@@ -547,14 +597,14 @@ function doEnhance() {
     document.body.classList.remove('shake', 'crack'); void document.body.offsetWidth; document.body.classList.add('shake', 'crack');
     sparks('destroy', '#e4675a');
     floatText('파괴', 'bad'); buzz([60, 40, 120]);
-    toast(`파괴! +${w.level} ${levelName(w)}이(가) 산산조각 났습니다`);
+    toast(`파괴! ${gradeLv(w)} ${levelName(w)}이(가) 산산조각 났습니다`);
     ui.selected = null;
   } else if (r.result.startsWith('up')) {
-    ui.flash = w.level >= 10 ? 'flash pillar' : 'flash';
-    sparks(w.level >= 20 ? 'big' : 'up', gradeColor(w.grade) === GRADE_COLORS[0][1] ? '#f1b45a' : gradeColor(w.grade));
+    ui.flash = w.level >= GRADE_CAPS[w.grade] || w.grade >= 2 ? 'flash pillar' : 'flash';
+    sparks(atCap(w) ? 'big' : 'up', gradeColor(w.grade) === GRADE_COLORS[0][1] ? '#f1b45a' : gradeColor(w.grade));
     floatText(r.result === 'up2' ? '+2 점프!' : '성공', 'good'); buzz(25);
-    if (bandOf(w.level) > bandOf(before) || w.level === MAX_LEVEL) { showEvolution(w); buzz([30, 30, 60]); }
-    else if (atCap(w) && w.grade < GRADES.length - 1) toast(`+${w.level} 한계 도달! 같은 ${WEAPONS[w.type].name} 한 자루를 재료로 승급하세요`);
+    if (bandOf(w) > bandOf({ grade: w.grade, level: before }) || w.level === MAX_LEVEL) { showEvolution(w); buzz([30, 30, 60]); }
+    else if (atCap(w) && w.grade < GRADES.length - 1) toast(`+${w.level} 한계 도달! ${GRADES[w.grade]} ${WEAPONS[w.type].name} 한 자루를 재료로 ${GRADES[w.grade + 1]} 승급`);
     if (w.pendingTraits) ui.modal = { kind: 'trait', id: w.id };
   } else {
     ui.flash = 'dim';
@@ -592,7 +642,11 @@ const handlers = {
   tab: (d) => { ui.tab = d.tab; window.scrollTo(0, 0); },
   select: (d) => { ui.selected = Number(d.id); if (ui.tab !== 'forge') ui.tab = 'forge'; },
   enhance: () => doEnhance(),
-  buy: (d) => { const r = buy(s, d.type); if (!r.ok) return toast(r.reason); ui.selected = r.weapon.id; toast(`${WEAPONS[d.type].name} 구매 · 채집장으로 보냈습니다`); },
+  buy: (d) => {
+    const r = buy(s, d.type); if (!r.ok) return toast(r.reason);
+    ui.selected = r.weapon.id; if (ui.modal?.kind === 'info') { ui.modal = null; ui.tab = 'forge'; }
+    toast(`${WEAPONS[d.type].name} 구매 · 바로 채집을 시작합니다`);
+  },
   promote: () => {
     const w = selectedWeapon();
     const r = w && promote(s, w.id);
@@ -611,7 +665,7 @@ const handlers = {
     floatText(`+${fmt(g)}`, 'gain', vein);
     vein?.classList.remove('hit'); void vein?.offsetWidth; vein?.classList.add('hit');
     if (Math.random() < 0.35) sparks('up', '#6fd6c4');
-    tapSound(); buzz(8);
+    tapSound(); buzz(8); bump();
   },
   'promote-all': () => {
     const r = promoteAll(s);
@@ -640,12 +694,18 @@ const handlers = {
   'rebirth-ad': () => doRebirth(true),
   'offline-ad': () => { s.minerals += ui.modal.gain; toast(`(광고 시청 완료) +${fmt(ui.modal.gain)} 더`); ui.modal = null; },
   close: () => { ui.modal = null; },
-  unlock: (d) => { const r = unlock(s, d.type); toast(r.ok ? `${WEAPONS[d.type].name} 해금! 강화장에서 살 수 있습니다` : r.reason); },
+  unlock: (d) => {
+    const r = unlock(s, d.type);
+    if (!r.ok) return toast(r.reason);
+    clang('up'); buzz([30, 30, 60]); setTimeout(() => sparks('big', '#f1d488'), 50);
+    ui.modal = { kind: 'info', type: d.type, fresh: true };
+  },
   perm: (d) => { const r = buyPerm(s, d.key); toast(r.ok ? `${PERMS[d.key].name} 강화` : r.reason); },
   'ad-minerals': () => { const g = Math.max(200, incomePerSec(s) * 300); s.minerals += g; gainText(g); toast(`(광고 시청 완료) +${fmt(g)} 미네랄`); },
   cash: (d) => toast(`「${d.name}」은 출시 후 판매합니다`),
-  'open-odds': () => { ui.modal = { kind: 'odds', type: 'sword' }; },
-  'odds-type': (d) => { ui.modal = { kind: 'odds', type: d.type }; },
+  'open-odds': () => { ui.modal = { kind: 'odds', type: 'sword', grade: 0 }; },
+  odds: (d) => { ui.modal = { kind: 'odds', type: d.type, grade: Number(d.grade) }; },
+  info: (d) => { ui.modal = { kind: 'info', type: d.type }; },
   'bulk-sell': () => { const r = bulkSell(s, ui.sellMax); toast(r.ok ? `${r.count}자루를 팔았습니다` : r.reason); ui.selected = null; },
 };
 
@@ -657,10 +717,46 @@ function doRebirth(ad) {
   persist();
 }
 
+// ---- 손맛: 누르면 물결·짧은 진동, 강화 버튼은 꾹 누르면 연속 강화 ----
+const PRESSABLE = '.btn, .enhance-btn, .buy, .tile, .pack, .tabs button, .guide, .info-btn, .unlock, .speed';
+const hold = { timer: null, repeat: null, fired: false };
+function stopHold() {
+  clearTimeout(hold.timer); clearInterval(hold.repeat);
+  hold.timer = hold.repeat = null;
+  document.body.classList.remove('holding');
+}
+document.addEventListener('pointerdown', (e) => {
+  const el = e.target.closest(PRESSABLE);
+  if (!el || el.disabled) return;
+  const r = el.getBoundingClientRect();
+  const rp = document.createElement('span');
+  rp.className = 'ripple';
+  rp.style.left = `${e.clientX - r.left}px`; rp.style.top = `${e.clientY - r.top}px`;
+  el.appendChild(rp);
+  setTimeout(() => rp.remove(), 550);
+  buzz(5);
+  if (el.dataset.act === 'enhance') {
+    hold.fired = false;
+    hold.timer = setTimeout(() => {
+      document.body.classList.add('holding');
+      hold.repeat = setInterval(() => {
+        const w = selectedWeapon();
+        if (!w || ui.modal || w.pendingTraits || atCap(w) || s.minerals < enhancePrice(s, w)) return stopHold();
+        hold.fired = true;
+        doEnhance();
+        if (!s.weapons.includes(w)) stopHold();
+      }, 150);
+    }, 380);
+  }
+});
+['pointerup', 'pointercancel', 'blur'].forEach((ev) => window.addEventListener(ev, stopHold));
+
 document.addEventListener('click', (e) => {
   const el = e.target.closest('[data-act]');
+  if (e.target.id === 'modal' && ['info', 'odds'].includes(ui.modal?.kind)) { ui.modal = null; render(); return; }
   if (!el || el.disabled || el.tagName === 'INPUT' || el.tagName === 'SELECT') return;
   if (e.target.closest('#modal') && !e.target.closest('.sheet')) return;
+  if (el.dataset.act === 'enhance' && hold.fired) { hold.fired = false; return; }
   const h = handlers[el.dataset.act];
   if (!h) return;
   if (el.dataset.act !== 'enhance' && el.dataset.act !== 'challenge') {

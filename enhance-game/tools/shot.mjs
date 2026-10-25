@@ -17,6 +17,16 @@ await page.evaluate(() => {});
 for (let i = 0; i < 3; i++) { await page.waitForTimeout(1100); }
 for (let i = 0; i < 20; i++) { await page.waitForTimeout(1000); const b = await page.$('#view .enhance-btn:not([disabled])'); if (b) await b.click(); }
 await page.screenshot({ path: out + 'forge.png', fullPage: true });
+// 꾹 눌러 연속 강화
+await page.evaluate(() => { const st = JSON.parse(localStorage.getItem('enhance-save-v2') || 'null'); return st; });
+const eb = await page.$('#view .enhance-btn:not([disabled])');
+if (eb) { const bx = await eb.boundingBox(); await page.mouse.move(bx.x + bx.width / 2, bx.y + bx.height / 2); await page.mouse.down(); await page.waitForTimeout(1500); await page.screenshot({ path: out + 'hold.png' }); await page.mouse.up(); }
+await page.click('.info-btn[data-type="axe"]');
+await page.waitForTimeout(500);
+await page.screenshot({ path: out + 'info.png' });
+await page.mouse.click(195, 30);
+await page.waitForTimeout(300);
+console.log('info closed by backdrop:', await page.$eval('#modal', (m) => m.hidden));
 await page.click('.tabs [data-tab="mine"]');
 for (let i = 0; i < 8; i++) { await page.click('.tap-vein'); await page.waitForTimeout(60); }
 for (const tab of ['mine', 'boss', 'book', 'shop']) {

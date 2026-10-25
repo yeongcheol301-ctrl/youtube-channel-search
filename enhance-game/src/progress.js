@@ -14,13 +14,14 @@ export function nextBoss(s) {
   return makeBoss(s.maxStage + 1);
 }
 
-export function challengeBoss(s) {
+export function challengeBoss(s, nowMs = Date.now()) {
   const party = fighters(s);
   if (!party.length) return fail('전투 무기가 없습니다');
   const boss = nextBoss(s);
   const r = bossFight(party, boss, ctxOf(s));
   if (r.killed) {
     s.maxStage += 1;
+    s.lastClearAt = nowMs;
     s.minerals += bossReward(boss.stage);
   }
   return { ok: true, killed: r.killed, damage: r.damage, hits: r.hits, boss };
@@ -127,9 +128,14 @@ export function bulkSell(s, maxLevel) {
 }
 
 export const HINT_IDLE_MS = 10 * 60e3;
+export const HINT_STUCK_MS = 15 * 60e3;
 
+// DPS가 10분째 그대로이거나, DPS는 조금씩 늘어도 15분째 다음 보스를 못 잡으면 환생을 권한다.
 export function shouldHintRebirth(s, nowMs) {
-  return s.maxStage >= 1 && s.bestDpsAt > 0 && nowMs - s.bestDpsAt > HINT_IDLE_MS;
+  if (s.maxStage < 1) return false;
+  const idle = s.bestDpsAt > 0 && nowMs - s.bestDpsAt > HINT_IDLE_MS;
+  const stuck = s.lastClearAt > 0 && nowMs - s.lastClearAt > HINT_STUCK_MS;
+  return idle || stuck;
 }
 
 // ---- 안내 ----

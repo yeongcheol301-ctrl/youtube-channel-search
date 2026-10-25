@@ -321,8 +321,84 @@ img.logo { width: 100%; height: auto; margin-top: 8px; }
 .cap-line { margin: -2px 0 6px; font-size: 12px; color: var(--muted); }
 .enhance-btn.promote { background: linear-gradient(180deg, #f1d488 0%, #c9a24a 55%, #7a5a1e 100%); color: #1a0f05; border-color: #fff3c0; box-shadow: inset 0 1px 0 rgba(255, 250, 220, 0.6), 0 4px 0 #4a3510, 0 0 26px -4px var(--gold-hi); }
 .enhance-btn.promote .eb-meta { color: #2a1a05; }
+.enhance-btn.promote .eb-title { font-size: 26px; letter-spacing: 0.08em; padding-left: 0.08em; }
 .enhance-btn.promote:disabled { background: linear-gradient(180deg, #3a3020, #221c12); color: var(--muted); }
 .enhance-btn.promote:disabled .eb-meta { color: var(--muted); }
+/* ---- 쫀득한 앱 손맛 ---- */
+:root { --spring: cubic-bezier(0.34, 1.56, 0.64, 1); --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1); }
+html { overscroll-behavior-y: none; }
+body { -webkit-tap-highlight-color: transparent; touch-action: manipulation; -webkit-user-select: none; user-select: none; }
+#hud { background: rgba(12, 10, 9, 0.82); -webkit-backdrop-filter: blur(14px) saturate(1.3); backdrop-filter: blur(14px) saturate(1.3); }
+.btn, .enhance-btn, .buy, .tile, .pack, .guide, .info-btn, .unlock, .speed, .tabs button { position: relative; overflow: hidden; transition: transform 0.38s var(--spring), filter 0.2s, box-shadow 0.2s; will-change: transform; }
+.btn:active:not(:disabled), .buy:active:not(:disabled), .tile:active, .pack:active, .guide:active, .info-btn:active, .unlock:active, .speed:active { transform: scale(0.94); transition-duration: 0.07s; filter: brightness(1.2); }
+.enhance-btn:active:not(:disabled), body.holding .enhance-btn:not(:disabled) { transform: translateY(3px) scale(0.975); transition-duration: 0.07s; }
+body.holding .enhance-btn:not(:disabled) { box-shadow: inset 0 0 30px rgba(255, 190, 120, 0.35), 0 0 34px -2px #ff6a3a; }
+.ripple { position: absolute; width: 16px; height: 16px; margin: -8px 0 0 -8px; border-radius: 50%; background: rgba(255, 236, 200, 0.35); pointer-events: none; animation: ripple 0.55s var(--ease-out) forwards; }
+@keyframes ripple { to { transform: scale(22); opacity: 0; } }
+.mineral.bump { animation: bump 0.32s var(--spring); }
+@keyframes bump { 40% { transform: scale(1.12); color: #fff6d8; } }
+.mineral { display: inline-block; transform-origin: left center; }
+#view.enter[data-dir="r"] { animation: inR 0.34s var(--ease-out); }
+#view.enter[data-dir="l"] { animation: inL 0.34s var(--ease-out); }
+@keyframes inR { from { opacity: 0; transform: translateX(24px); } }
+@keyframes inL { from { opacity: 0; transform: translateX(-24px); } }
+.tile.on { animation: sel 0.4s var(--spring); }
+@keyframes sel { 0% { transform: scale(0.88); } }
+.tile-g { font-size: 9.5px; line-height: 1; color: var(--grade); font-weight: 800; letter-spacing: 0.04em; margin-top: 2px; }
+.tile-lv { line-height: 1.2; }
+/* 탭: 아이콘 + 미끄러지는 금빛 받침 */
+.tabs { padding-top: 4px; }
+.tabs button { display: grid; justify-items: center; gap: 1px; padding: 6px 0 4px; font-size: 11.5px; background: none !important; box-shadow: none !important; z-index: 1; }
+.tabs svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform 0.4s var(--spring); }
+.tabs button[aria-current="page"] svg { transform: translateY(-2px) scale(1.14); filter: drop-shadow(0 0 6px rgba(241, 212, 136, 0.55)); }
+.tab-ind { position: absolute; top: 4px; bottom: calc(4px + env(safe-area-inset-bottom, 0px)); left: max(8px, env(safe-area-inset-left, 0px)); width: calc((100% - 2 * max(8px, env(safe-area-inset-left, 0px))) / 5); transform: translateX(calc(var(--i, 0) * 100%)); transition: transform 0.45s var(--spring); pointer-events: none; }
+.tab-ind::before { content: ""; position: absolute; inset: 0 6px; border-radius: 12px; background: linear-gradient(180deg, #2e2317, #18130e); box-shadow: inset 0 0 0 1px rgba(201, 162, 74, 0.35), inset 0 -2px 0 var(--gold); }
+.tabs button.dot::after { top: 4px; right: calc(50% - 18px); }
+/* 아래에서 올라오는 시트 */
+#modal { padding: 0; -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); }
+.sheet { box-sizing: border-box; border-radius: 20px 20px 0 0; padding: 10px 16px calc(18px + env(safe-area-inset-bottom, 0px)); max-height: 86vh; border-bottom: 0; }
+#modal .sheet { animation: sheetUp 0.42s var(--spring); }
+@keyframes sheetUp { from { transform: translateY(100%); } }
+.grab { justify-self: center; width: 40px; height: 4px; border-radius: 2px; background: #5a4630; margin-bottom: 2px; }
+#toast { border-radius: 999px; padding: 9px 18px; background: rgba(28, 23, 18, 0.94); border-color: #6a5220; -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px); }
+#toast:not([hidden]) { animation: toastIn 0.4s var(--spring); }
+@keyframes toastIn { from { opacity: 0; transform: translate(-50%, 18px) scale(0.9); } }
+.banner-inner { animation: pop 0.5s var(--spring); }
+.banner-inner em { font-style: normal; font-size: 12.5px; color: var(--gold-hi); margin-top: 4px; }
+/* 강화 진행 막대: 칸마다 한 단계, 금색 칸이 특성 단계 */
+.track { display: grid; grid-template-columns: repeat(var(--cap), 1fr); gap: 2px; margin: 0 0 4px; }
+.track i { height: 6px; border-radius: 2px; background: #2a221a; box-shadow: inset 0 0 0 1px #3b3024; }
+.track i.f { background: linear-gradient(180deg, var(--gold-hi), var(--gold)); box-shadow: 0 0 6px -1px var(--gold); }
+.track i.t { box-shadow: inset 0 0 0 1px var(--gold-hi); }
+.track i.n { animation: fill 0.5s var(--spring); }
+@keyframes fill { from { transform: scaleY(2.2); filter: brightness(1.8); } }
+/* 무기 구매 카드 + 설명 */
+.buy-card { position: relative; display: grid; }
+.buy-card.locked .buy { opacity: 0.6; filter: grayscale(0.5); }
+.info-btn { position: absolute; top: 3px; right: 3px; width: 22px; height: 22px; border-radius: 50%; border: 1px solid #6a5220; background: #241a10; color: var(--gold-hi); font: 800 12px/1 var(--font-head); padding: 0; cursor: pointer; display: grid; place-items: center; }
+.info-btn::before { content: ""; position: absolute; inset: -10px; }
+.unlock { cursor: pointer; }
+.unlock small.more { color: var(--gold); font-size: 11.5px; }
+.sheet.info { gap: 12px; }
+.info-hero { display: grid; grid-template-columns: 112px 1fr; gap: 14px; align-items: center; }
+.info-hero img.art { filter: drop-shadow(0 0 16px rgba(201, 162, 74, 0.35)); animation: artIn 0.5s var(--spring); }
+.info-hero .pitch { font-size: 14px; color: var(--fg); }
+.stats.four { grid-template-columns: repeat(4, 1fr); background: #120f0c; border: 1px solid var(--line); border-radius: 10px; padding: 8px 10px; margin: 0; }
+.pc { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; font-size: 13.5px; }
+.pc li { padding-left: 22px; position: relative; }
+.pc li::before { position: absolute; left: 2px; font-weight: 800; }
+.pc .pro::before { content: "✓"; color: var(--ok); }
+.pc .con::before { content: "✕"; color: var(--no); }
+.counters { font-size: 13px; color: var(--muted); }
+.evo { display: flex; align-items: center; justify-content: center; gap: 6px; background: radial-gradient(ellipse at 50% 50%, #221a12, transparent 70%); padding: 6px 0; }
+.evo figure { margin: 0; display: grid; justify-items: center; gap: 2px; }
+.evo figcaption { font-size: 11px; color: var(--muted); }
+.evo .arrow { color: var(--gold); font-size: 22px; }
+.fresh { text-align: center; font-family: var(--font-display); font-size: 26px; color: var(--gold-hi); text-shadow: 0 0 16px var(--gold); animation: pop 0.5s var(--spring); }
+.seg.g5 { grid-template-columns: repeat(5, 1fr); }
+.book-card header .btn { margin-left: auto; padding: 6px 12px; }
+.info-btn { overflow: visible; }
+.pack-tag { top: 0; left: 0; border-radius: 6px 0 6px 0; }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation: none !important; transition: none !important; } }
 @media (max-width: 360px) { .anvil { grid-template-columns: 96px 1fr; } .shop { grid-template-columns: repeat(2, 1fr); } }
 </style>
@@ -332,11 +408,12 @@ img.logo { width: 100%; height: auto; margin-top: 8px; }
   <main id="view"></main>
 </div>
 <nav class="tabs" aria-label="화면">
-  <button type="button" data-act="tab" data-tab="forge">강화장</button>
-  <button type="button" data-act="tab" data-tab="mine">채집장</button>
-  <button type="button" data-act="tab" data-tab="boss">보스</button>
-  <button type="button" data-act="tab" data-tab="book">도감</button>
-  <button type="button" data-act="tab" data-tab="shop">상점</button>
+  <span class="tab-ind" aria-hidden="true"></span>
+  <button type="button" data-act="tab" data-tab="forge"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9h13l-2 4H8l1 3h6v2H5v-2h2l-1-3H5z"/><path d="M17 4l3 3-6 6-1-1z"/></svg><span>강화장</span></button>
+  <button type="button" data-act="tab" data-tab="mine"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20l9-9"/><path d="M8 5c4-2 9-1 12 3-3-1-6-1-9 1z"/></svg><span>채집장</span></button>
+  <button type="button" data-act="tab" data-tab="boss"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3c-5 0-8 3-8 8 0 3 2 5 3 6v3h10v-3c1-1 3-3 3-6 0-5-3-8-8-8z"/><circle cx="9" cy="11" r="1.6"/><circle cx="15" cy="11" r="1.6"/></svg><span>보스</span></button>
+  <button type="button" data-act="tab" data-tab="book"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11a3 3 0 013 3v13H8a3 3 0 01-3-3z"/><path d="M5 17a3 3 0 013-3h11"/></svg><span>도감</span></button>
+  <button type="button" data-act="tab" data-tab="shop"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 8h14l-1 12H6z"/><path d="M9 8V6a3 3 0 016 0v2"/></svg><span>상점</span></button>
 </nav>
 <div id="splash" hidden><div class="splash-inner"><img src="assets/logo.webp" alt="심연의 대장간" width="900" height="503"><p>검을 사고, 두드리고, 부수고, 다시 태어나라.</p><button type="button" class="enhance-btn"><span class="eb-title">입장</span><span class="eb-meta">탭하면 소리가 켜집니다</span></button></div></div>
 <div id="modal" hidden></div>

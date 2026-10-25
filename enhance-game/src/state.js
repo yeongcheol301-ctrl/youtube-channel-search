@@ -4,7 +4,7 @@ import {
   buildingStats, mineralsPerSec, buildingDps,
 } from './rules.js';
 
-export const SAVE_KEY = 'enhance-save-v1';
+export const SAVE_KEY = 'enhance-save-v2';
 export const OFFLINE_CAP_SEC = 8 * 3600;
 
 const fail = (reason) => ({ ok: false, reason });
@@ -33,6 +33,7 @@ export function newGame(meta = newMeta()) {
     building: { tier: 0, hp, hpLeft: hp, t: 0 },
     bestDps: 0,
     bestDpsAt: 0,
+    lastClearAt: 0,
     bestLevel: 0,
     maxStage: 0,
     lastSeen: 0,
@@ -69,7 +70,7 @@ export function buy(s, type) {
 }
 
 export function enhancePrice(s, w) {
-  return enhanceCost(w.level, w.type, discount(s));
+  return enhanceCost(w.level, w.type, discount(s), w.grade);
 }
 
 // 무기 전용 풀에서 서로 다른 특성 3개를 뽑는다(풀에 많이 든 특성일수록 잘 뜸).
@@ -84,8 +85,15 @@ function offerTraits(type, rng) {
   return picks;
 }
 
+// 앞 등급에서 받은 특성(등급마다 +5·+10에서 하나씩) + 지금 등급에서 닿은 단계 수.
+export function traitsExpected(w) {
+  let n = 0;
+  for (let g = 0; g < w.grade; g++) n += TRAIT_LEVELS.filter((l) => l <= GRADE_CAPS[g]).length;
+  return n + TRAIT_LEVELS.filter((l) => l <= GRADE_CAPS[w.grade] && w.level >= l).length;
+}
+
 function traitsOwed(w) {
-  return TRAIT_LEVELS.filter((l) => w.level >= l).length - w.traits.length;
+  return traitsExpected(w) - w.traits.length;
 }
 
 export function enhance(s, id, rng) {
@@ -97,7 +105,7 @@ export function enhance(s, id, rng) {
   const cost = enhancePrice(s, w);
   if (s.minerals < cost) return fail('미네랄 부족');
   s.minerals -= cost;
-  const r = rollEnhance(w, rng, permLevel(s, 'success'), cap);
+  const r = rollEnhance(w, rng, permLevel(s, 'success'));
   if (r.result === 'destroy') {
     s.weapons = s.weapons.filter((x) => x !== w);
     return { ok: true, result: 'destroy', weapon: w };
@@ -120,7 +128,7 @@ export function pickTrait(s, id, key) {
 }
 
 export function sellValue(w) {
-  return Math.round(WEAPONS[w.type].price * 0.5 * Math.pow(1.25, w.level) * (1 + w.grade));
+  return Math.round(WEAPONS[w.type].price * 0.5 * Math.pow(1.25, w.level) * Math.pow(4, w.grade));
 }
 
 export function sell(s, id) {
@@ -172,6 +180,8 @@ export function promote(s, id) {
   s.minerals -= promoteCost(w.grade);
   s.weapons = s.weapons.filter((x) => x !== mat);
   w.grade += 1;
+  w.level = 0;
+  w.pity = 0;
   discover(s, w);
   return { ok: true, weapon: w, material: mat };
 }

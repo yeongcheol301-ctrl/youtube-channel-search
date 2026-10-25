@@ -85,6 +85,9 @@ test('rebirth hint after ten idle minutes', () => {
   s.bestDpsAt = 1000;
   assert.equal(shouldHintRebirth(s, 1000 + 9 * 60e3), false);
   assert.equal(shouldHintRebirth(s, 1000 + 11 * 60e3), true);
+  const creeping = newGame(); creeping.maxStage = 3; creeping.lastClearAt = 1000; creeping.bestDpsAt = 1000 + 14 * 60e3;
+  assert.equal(shouldHintRebirth(creeping, 1000 + 14 * 60e3), false);
+  assert.equal(shouldHintRebirth(creeping, 1000 + 16 * 60e3), true, 'no new boss for 15 minutes');
 });
 
 test('attack and reward perms compound so rebirths keep paying', async () => {
