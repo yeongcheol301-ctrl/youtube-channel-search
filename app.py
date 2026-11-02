@@ -29,7 +29,8 @@ from yt_finder.channels import (
 from yt_finder.config import FinderConfig, get_api_keys, get_shared_api_keys
 from yt_finder.youtube_api import is_exhausted
 from yt_finder.finder import collect_videos, sort_results
-from yt_finder.youtube_api import YouTubeApiError
+from yt_finder.questions import CHANNEL_KEYWORDS, fetch_comments_api, mine_questions
+from yt_finder.youtube_api import YouTubeApiError, build_client
 
 PERIOD_OPTIONS = {"7일": 7, "30일": 30, "90일": 90, "1년": 365, "전체": None}
 SHORTS_OPTIONS = {"전체": "all", "롱폼": "long", "숏폼": "shorts"}
@@ -330,8 +331,108 @@ def render_compare() -> None:
             st.markdown(render_top_list(report, color, top_videos(videos)), unsafe_allow_html=True)
 
 
-finder_tab, compare_tab = st.tabs(["크리에이터 찾기", "채널 비교"])
+# ---------------------------------------------------------------- 소재 찾기 (질문 댓글)
+QUESTION_PRESETS = {"직접 입력": [], **CHANNEL_KEYWORDS}
+
+
+def render_questions() -> None:
+    preset = st.segmented_control("키워드 묶음", list(QUESTION_PRESETS), default="직접 입력", key="question_preset")
+    default_text = "\n".join(QUESTION_PRESETS.get(preset or "직접 입력", []))
+    with st.form("question_form", border=False):
+        keywords_text = st.text_area(
+            "키워드 (한 줄에 하나)", value=default_text, height=150,
+            placeholder="예:\n영화 고증\n건물 이유",
+        )
+        col1, col2, col3, button_col = st.columns([3, 3, 3, 2], vertical_alignment="bottom")
+        with col1:
+            kind_label = st.segmented_control("영상 종류", list(SHORTS_OPTIONS), default="숏폼", key="question_kind")
+        with col2:
+            period_label = st.segmented_control("업로드 기간", list(PERIOD_OPTIONS), default="1년", key="question_period")
+        with col3:
+            per_keyword = st.number_input("키워드당 댓글 볼 영상", min_value=1, max_value=10, value=5, step=1)
+        with button_col:
+            submitted = st.form_submit_button("질문 모으기", type="primary")
+        st.caption(
+            "키워드마다 구독자 대비 조회수가 높은 영상을 골라, 인기 댓글 중 '왜·원리·가능·실제로'처럼 궁금해하는 댓글만 모아요. "
+            "API는 키워드당 약 100~300 units + 영상당 1 unit (최근 검색한 키워드는 0)."
+        )
+
+    keywords = [k.strip() for k in keywords_text.splitlines() if k.strip()]
+    if submitted:
+        if not keywords:
+            st.warning("키워드를 1개 이상 입력해 주세요.")
+            return
+        config = FinderConfig(
+            min_subscribers=1000, min_views=0, ratio_threshold=0, max_results=50,
+            published_within_days=PERIOD_OPTIONS[period_label or "1년"],
+            shorts_mode=SHORTS_OPTIONS[kind_label or "숏폼"], priority="views", max_per_channel=3,
+        )
+        picked: dict[str, dict] = {}
+        used = 0
+        progress = st.progress(0.0, text="떡상 영상을 찾는 중…")
+        try:
+            for i, keyword in enumerate(keywords):
+                outcome = collect_videos(keyword, config=config, api_keys=active_keys())
+                used += outcome.quota_used
+                for video in sorted(outcome.videos, key=lambda v: v["ratio"], reverse=True)[: int(per_keyword)]:
+                    picked.setdefault(video["video_id"], {**video, "keyword": keyword})
+                progress.progress((i + 1) / len(keywords) / 2, text=f"떡상 영상을 찾는 중… ({keyword})")
+            client = build_client(active_keys())
+            videos = list(picked.values())
+            done = {"n": 0}
+
+            def fetch(video_id: str):
+                done["n"] += 1
+                progress.progress(0.5 + done["n"] / max(len(videos), 1) / 2, text=f"댓글을 읽는 중… ({done['n']}/{len(videos)})")
+                return fetch_comments_api(client, video_id)
+
+            rows = mine_questions(videos, fetch)
+            used += len(videos)
+        except YouTubeApiError as exc:
+            progress.empty()
+            st.error(f"{exc} (PC에서는 question_miner.py가 ego-browser로 대신 모을 수 있어요.)")
+            return
+        progress.empty()
+        st.session_state.quota_used += used
+        st.session_state.questions = {"rows": rows, "videos": len(picked), "keywords": len(keywords), "quota": used}
+
+    state = st.session_state.get("questions")
+    if not state:
+        st.markdown(
+            '<div class="empty"><b>사람들이 이미 궁금해하는 소재를 찾아보세요</b>'
+            "떡상 영상의 댓글에서 질문만 뽑아 좋아요 순으로 보여 드려요. 좋아요가 많은 질문 = 공감한 사람이 많은 소재예요.</div>",
+            unsafe_allow_html=True,
+        )
+        return
+
+    rows = state["rows"]
+    chips = [f"질문 {len(rows)}개", f"영상 {state['videos']}개 · 키워드 {state['keywords']}개", f"API {state['quota']} units", quota_chip()]
+    st.markdown('<div class="summary"><h2>질문 댓글</h2>' + "".join(f'<span class="chip">{c}</span>' for c in chips) + "</div>",
+                unsafe_allow_html=True)
+    if not rows:
+        st.info("질문형 댓글을 찾지 못했어요. 키워드를 바꾸거나 키워드당 영상 수를 늘려 보세요.")
+        return
+    st.caption("단어 규칙으로 고른 거라 의견·비난 댓글이 조금 섞여 있어요. 소재로 쓸 질문만 골라 팩트체크 후 문장은 새로 쓰세요.")
+    table = pd.DataFrame(rows).rename(columns={
+        "likes": "좋아요", "question": "질문 댓글", "keyword": "키워드",
+        "video_title": "나온 영상", "video_views": "영상 조회수", "video_url": "영상 링크",
+    })[["좋아요", "질문 댓글", "키워드", "나온 영상", "영상 조회수", "영상 링크"]]
+    st.download_button("CSV", data=table.to_csv(index=False).encode("utf-8-sig"),
+                       file_name="question_comments.csv", mime="text/csv")
+    st.dataframe(
+        table, hide_index=True, width="stretch", height=600,
+        column_config={
+            "질문 댓글": st.column_config.TextColumn(width="large"),
+            "영상 링크": st.column_config.LinkColumn(display_text="열기"),
+            "영상 조회수": st.column_config.NumberColumn(format="localized"),
+        },
+    )
+
+
+finder_tab, compare_tab, question_tab = st.tabs(["크리에이터 찾기", "채널 비교", "소재 찾기"])
 with finder_tab:
     render_finder()
 with compare_tab:
     render_compare()
+with question_tab:
+    render_questions()
